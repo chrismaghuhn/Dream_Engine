@@ -6,6 +6,7 @@ add_executable(engine_tests
     core/test_default_toml.cpp
     world/test_indexing.cpp
     world/test_world_config.cpp
+    render/test_snapshot_ring.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine_core Catch2::Catch2WithMain)
 target_compile_definitions(engine_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
