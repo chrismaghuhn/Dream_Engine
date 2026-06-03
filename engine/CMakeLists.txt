@@ -21,7 +21,11 @@ set(ENGINE_CORE_SOURCES
     gameplay/BlockInteraction.cpp
     persist/AtomicFile.cpp
     persist/PlayerDat.cpp
+    persist/ChunkBinCodec.cpp
+    persist/WorldMeta.cpp
+    persist/Quarantine.cpp
     persist/MinimalSaveBackend.cpp
+    persist/RegionFileSaveBackend.cpp
     Engine.cpp
 )
 
@@ -98,6 +102,7 @@ target_link_libraries(engine_core PUBLIC
     engine_physics
     flecs_static
     enkiTS
+    libzstd_static
 )
 if(DEFINED enkits_SOURCE_DIR)
     target_include_directories(engine_core PUBLIC ${enkits_SOURCE_DIR}/src)

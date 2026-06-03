@@ -158,13 +158,14 @@ void Engine::shutdown() {
     started_ = false;
 }
 
-SaveWorldRequest Engine::make_save_request() const {
+SaveWorldRequest Engine::make_save_request() {
     SaveWorldRequest request{};
     request.saves_root = saves_root_;
     request.world_name = world_name_;
     request.world_config = config_.world();
     request.player_position = current_player_position();
     request.inventory = inventory_.snapshot();
+    request.jobs = &jobs_;
     return request;
 }
 

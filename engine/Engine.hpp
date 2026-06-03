@@ -51,7 +51,7 @@ public:
 
 private:
     void render_build(std::uint32_t snapshot_slot);
-    [[nodiscard]] SaveWorldRequest make_save_request() const;
+    [[nodiscard]] SaveWorldRequest make_save_request();
     [[nodiscard]] WorldPosition current_player_position() const;
     void apply_player_position(const WorldPosition& position);
     bool try_load_world_save();
