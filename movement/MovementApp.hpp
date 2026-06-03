@@ -57,7 +57,10 @@ private:
     engine::character::CharacterAsset player_asset_;
     engine::character::AnimationState player_anim_;
     engine::character::CombatController player_combat_;
+    engine::character::InputBuffer player_input_buffer_;
     engine::character::AttackTable attack_table_;
+    engine::character::ChainTable player_chains_;
+    engine::character::ScreenShake camera_shake_;
     int player_char_handle_ = -1;
 
     bool attack_light_down_   = false; bool attack_light_latch_   = false;

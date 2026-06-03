@@ -34,6 +34,17 @@ constexpr float kFovYDeg = 60.f;
 constexpr float kNearPlane = 0.1f;
 constexpr float kFarPlane = 500.f;
 
+const engine::character::AnimClip* find_clip(
+    const engine::character::CharacterAsset& asset,
+    const std::string& name) {
+    for (const auto& clip : asset.clips) {
+        if (clip.name == name) {
+            return &clip;
+        }
+    }
+    return nullptr;
+}
+
 glm::mat4 projection_matrix(float aspect_ratio) {
     glm::mat4 proj = glm::perspective(glm::radians(kFovYDeg), aspect_ratio, kNearPlane, kFarPlane);
     proj[1][1] *= -1.f; // Vulkan NDC Y flip (matches engine Camera)
@@ -84,8 +95,14 @@ bool MovementApp::startup() {
         player_anim_.active_clip = "Walk";
         player_anim_.looping     = true;
 
-        // Setup combo chain.
-        player_combat_.combo_ids = {"high_kick", "elbow_strike", "counterstrike"};
+        player_chains_[engine::character::kLightChain] = {
+            "elbow_strike", "counterstrike"};
+        player_chains_[engine::character::kHeavyChain] = {
+            "spartan_kick", "dodge_and_counter"};
+        player_chains_[engine::character::kKickChain] = {
+            "high_kick", "sweeping_kick", "lunge_spin_kick"};
+        player_chains_[engine::character::kSpecialChain] = {
+            "shield_push"};
 
         SPDLOG_INFO("MovementApp: player character loaded ({} clips)",
                     player_asset_.clips.size());
@@ -313,8 +330,8 @@ void MovementApp::build_debug_geometry(const glm::vec3& render_pos, float render
         }
     }
 
-    // Hit capsule during attacking hit window (red).
-    if (player_combat_.phase == engine::character::CombatPhase::Attacking &&
+    // Hit capsule during combat. Orange outside the active hit window, red inside.
+    if (player_combat_.phase != engine::character::CombatPhase::Idle &&
         !attack_table_.empty()) {
         const int ci = player_combat_.combo_index;
         if (ci >= 0 && ci < static_cast<int>(player_combat_.combo_ids.size())) {
@@ -323,12 +340,13 @@ void MovementApp::build_debug_geometry(const glm::vec3& render_pos, float render
             auto ait = attack_table_.find(atk_id);
             if (ait != attack_table_.end()) {
                 const engine::character::AttackDef& def = ait->second;
-                // Compute normalized time (same formula as try_hit_in_window).
-                const float elapsed   = player_anim_.time_seconds;
-                const float remaining = player_combat_.clip_remaining;
-                const float orig_dur  = elapsed + (remaining > 0.f ? remaining : 0.f);
-                const float norm_t    = (orig_dur > 1e-5f) ? elapsed / orig_dur : 1.f;
-                const bool in_window  = norm_t >= def.hit_start && norm_t <= def.hit_end;
+                const engine::character::AnimClip* clip =
+                    find_clip(player_asset_, def.clip);
+                const float duration = clip != nullptr ? clip->duration_seconds : 1.f;
+                const float norm_t =
+                    duration > 1e-5f ? player_anim_.time_seconds / duration : 1.f;
+                const bool in_window =
+                    norm_t >= def.hit_start_norm && norm_t <= def.hit_end_norm;
 
                 const float yaw = player_combat_.attack_yaw;
                 const glm::vec3 fwd(std::sin(yaw), 0.f, std::cos(yaw));
@@ -394,34 +412,39 @@ void MovementApp::run() {
             tf->sync_previous(); // previous = current before each fixed step
 
             // Combat FSM tick (before movement — may freeze player_tick).
-            const bool is_attacking =
-                player_combat_.phase == engine::character::CombatPhase::Attacking ||
-                player_combat_.phase == engine::character::CombatPhase::Recovery;
+            player_input_buffer_.tick();
 
-            // TODO Task 6: restore combat_tick call with InputBuffer& parameter
-            // if (player_char_handle_ >= 0 && !attack_table_.empty()) {
-            //     engine::character::combat_tick(
-            //         player_combat_, *tf, player_anim_, input,
-            //         attack_table_, player_asset_.clips,
-            //         static_cast<float>(SimClock::fixed_dt));
-            // }
+            if (input.attack_light) {
+                player_input_buffer_.push(engine::character::BufferedInput::Kind::Light);
+                attack_light_latch_ = false;
+                input.attack_light = false;
+            }
+            if (input.attack_heavy) {
+                player_input_buffer_.push(engine::character::BufferedInput::Kind::Heavy);
+                attack_heavy_latch_ = false;
+                input.attack_heavy = false;
+            }
+            if (input.attack_kick) {
+                player_input_buffer_.push(engine::character::BufferedInput::Kind::Kick);
+                attack_kick_latch_ = false;
+                input.attack_kick = false;
+            }
+            if (input.attack_special) {
+                player_input_buffer_.push(engine::character::BufferedInput::Kind::Special);
+                attack_special_latch_ = false;
+                input.attack_special = false;
+            }
+            if (input.dodge_pressed &&
+                player_combat_.phase != engine::character::CombatPhase::Idle) {
+                player_input_buffer_.push(engine::character::BufferedInput::Kind::Dodge);
+                input.dodge_pressed = false;
+            }
 
-            // Freeze horizontal movement while attacking (spec 4.4).
-            if (is_attacking) {
-                // Zero out move input so player_tick doesn't move the character.
-                InputSnapshot frozen_input = input;
-                frozen_input.move_forward = false;
-                frozen_input.move_back    = false;
-                frozen_input.move_left    = false;
-                frozen_input.move_right   = false;
-                frozen_input.jump_pressed = false;
-                debug_ = player_tick(*tf, *pc, player_capsule_, collision_,
-                                     frozen_input, rig->yaw,
-                                     static_cast<float>(SimClock::fixed_dt), tuning_);
-            } else {
-                debug_ = player_tick(*tf, *pc, player_capsule_, collision_, input,
-                                     rig->yaw, static_cast<float>(SimClock::fixed_dt),
-                                     tuning_);
+            if (player_char_handle_ >= 0) {
+                const engine::character::AnimClip* clip =
+                    find_clip(player_asset_, player_anim_.active_clip);
+                engine::character::AnimationController::tick(
+                    player_anim_, clip, static_cast<float>(SimClock::fixed_dt));
             }
 
             // Select and advance locomotion animation (only when not in combat clip).
@@ -433,24 +456,34 @@ void MovementApp::run() {
                     engine::character::AnimationController::select_locomotion(
                         horiz_speed, pc->grounded);
                 if (desired != player_anim_.active_clip) {
-                    player_anim_.active_clip  = desired;
-                    player_anim_.time_seconds = 0.f;
-                    player_anim_.looping      = true;
+                    engine::character::AnimationController::crossfade_to(
+                        player_anim_, desired, 0.1f, true);
                 }
             }
 
-            // Advance player animation time.
-            if (player_char_handle_ >= 0) {
-                const engine::character::AnimClip* clip = nullptr;
-                for (const auto& c : player_asset_.clips) {
-                    if (c.name == player_anim_.active_clip) { clip = &c; break; }
-                }
-                engine::character::AnimationController::tick(
-                    player_anim_, clip, static_cast<float>(SimClock::fixed_dt));
+            if (player_char_handle_ >= 0 && !attack_table_.empty()) {
+                engine::character::combat_tick(
+                    player_combat_, *tf, player_anim_,
+                    player_input_buffer_, attack_table_, player_asset_.clips,
+                    player_chains_, static_cast<float>(SimClock::fixed_dt));
             }
+
+            const bool is_combat_locked =
+                player_combat_.phase != engine::character::CombatPhase::Idle;
+            InputSnapshot move_input = input;
+            if (is_combat_locked) {
+                move_input.move_forward = false;
+                move_input.move_back    = false;
+                move_input.move_left    = false;
+                move_input.move_right   = false;
+                move_input.jump_pressed = false;
+            }
+            debug_ = player_tick(*tf, *pc, player_capsule_, collision_, move_input,
+                                 rig->yaw, static_cast<float>(SimClock::fixed_dt),
+                                 tuning_);
 
             // Hit detection: test hit window against training dummy.
-            if (player_combat_.phase == engine::character::CombatPhase::Attacking &&
+            if (player_combat_.phase == engine::character::CombatPhase::Active &&
                 dummy_char_handle_ >= 0 && world_.is_alive(dummy_entity_) &&
                 !attack_table_.empty()) {
                 const int combo_i = player_combat_.combo_index;
@@ -462,8 +495,12 @@ void MovementApp::run() {
                         Transform* dummy_tf = world_.transforms().get(dummy_entity_);
                         Collider*  dummy_col = world_.colliders().get(dummy_entity_);
                         if (dummy_tf && dummy_col) {
+                            const engine::character::AnimClip* clip =
+                                find_clip(player_asset_, ait->second.clip);
+                            const float clip_duration =
+                                clip != nullptr ? clip->duration_seconds : 1.f;
                             const bool hit = engine::character::try_hit_in_window(
-                                player_combat_, player_anim_, ait->second,
+                                player_combat_, player_anim_, ait->second, clip_duration,
                                 *tf, *dummy_tf, *dummy_col);
                             if (hit) {
                                 const glm::vec3 dir = dummy_tf->position - tf->position;
@@ -471,8 +508,10 @@ void MovementApp::run() {
                                     glm::length(dir) > 1e-5f
                                         ? glm::normalize(dir)
                                         : glm::vec3(0.f, 0.f, 1.f);
+                                player_anim_.speed = 0.f;
                                 engine::character::trigger_hit_react(
-                                    dummy_react_, *dummy_tf, dir_norm, dummy_anim_);
+                                    dummy_react_, *dummy_tf, dir_norm, dummy_anim_,
+                                    &player_combat_, &camera_shake_);
                                 SPDLOG_INFO("Hit! combo[{}] attack '{}'",
                                             combo_i, atk_id);
                             }
@@ -487,13 +526,12 @@ void MovementApp::run() {
                 if (dummy_tf) {
                     engine::character::hit_react_tick(
                         dummy_react_, *dummy_tf,
-                        static_cast<float>(SimClock::fixed_dt));
+                        static_cast<float>(SimClock::fixed_dt),
+                        player_combat_.hitstop_active);
 
                     // Advance dummy animation.
-                    const engine::character::AnimClip* dclip = nullptr;
-                    for (const auto& c : dummy_asset_.clips) {
-                        if (c.name == dummy_anim_.active_clip) { dclip = &c; break; }
-                    }
+                    const engine::character::AnimClip* dclip =
+                        find_clip(dummy_asset_, dummy_anim_.active_clip);
                     engine::character::AnimationController::tick(
                         dummy_anim_, dclip, static_cast<float>(SimClock::fixed_dt));
 
@@ -512,10 +550,6 @@ void MovementApp::run() {
         if (!input.jump_pressed) {
             jump_latch_ = false;
         }
-        if (!input.attack_light)   attack_light_latch_   = false;
-        if (!input.attack_heavy)   attack_heavy_latch_   = false;
-        if (!input.attack_kick)    attack_kick_latch_    = false;
-        if (!input.attack_special) attack_special_latch_ = false;
 
         const float alpha = static_cast<float>(sim_clock_.alpha());
         const glm::vec3 render_pos = lerp_position(tf->previous_position, tf->position, alpha);
@@ -539,21 +573,21 @@ void MovementApp::run() {
         snap.opaque_sections.clear();
         snap.water_sections.clear();
         snap.render_origin = glm::vec3(0.f);
-        snap.view = camera::view_matrix(*rig, render_pos);
+        engine::character::tick_screenshake(camera_shake_, static_cast<float>(frame_dt));
+        const glm::vec3 shake_offset =
+            engine::character::screenshake_offset(camera_shake_);
+        snap.view = camera::view_matrix(*rig, render_pos + shake_offset);
         snap.proj = projection_matrix(renderer_.aspect_ratio());
 
         // Upload bone matrices + model matrix for the player character.
         if (player_char_handle_ >= 0) {
-            const engine::character::AnimClip* clip = nullptr;
-            for (const auto& c : player_asset_.clips) {
-                if (c.name == player_anim_.active_clip) {
-                    clip = &c;
-                    break;
-                }
-            }
+            const engine::character::AnimClip* clip =
+                find_clip(player_asset_, player_anim_.active_clip);
+            const engine::character::AnimClip* blend_clip =
+                find_clip(player_asset_, player_anim_.blend_clip);
             const std::vector<glm::mat4> bone_mats =
                 engine::character::AnimationController::sample_bone_matrices(
-                    player_anim_, clip, player_asset_.mesh);
+                    player_anim_, clip, player_asset_.mesh, blend_clip);
 
             // Model matrix: position + yaw * GLB root transform (handles cm→m scale).
             glm::mat4 model = glm::mat4(1.f);
@@ -568,13 +602,13 @@ void MovementApp::run() {
         if (dummy_char_handle_ >= 0 && world_.is_alive(dummy_entity_)) {
             const Transform* dummy_tf = world_.transforms().get(dummy_entity_);
             if (dummy_tf) {
-                const engine::character::AnimClip* dclip = nullptr;
-                for (const auto& c : dummy_asset_.clips) {
-                    if (c.name == dummy_anim_.active_clip) { dclip = &c; break; }
-                }
+                const engine::character::AnimClip* dclip =
+                    find_clip(dummy_asset_, dummy_anim_.active_clip);
+                const engine::character::AnimClip* dblend_clip =
+                    find_clip(dummy_asset_, dummy_anim_.blend_clip);
                 const std::vector<glm::mat4> dummy_bones =
                     engine::character::AnimationController::sample_bone_matrices(
-                        dummy_anim_, dclip, dummy_asset_.mesh);
+                        dummy_anim_, dclip, dummy_asset_.mesh, dblend_clip);
 
                 const float d_alpha = static_cast<float>(sim_clock_.alpha());
                 const glm::vec3 d_render_pos = lerp_position(
@@ -609,8 +643,10 @@ void MovementApp::run() {
         // Combat state.
         using CP = engine::character::CombatPhase;
         overlay_state.combat_phase =
-            player_combat_.phase == CP::Attacking ? "Attacking" :
-            player_combat_.phase == CP::Recovery  ? "Recovery"  : "Idle";
+            player_combat_.phase == CP::Startup     ? "Startup" :
+            player_combat_.phase == CP::Active      ? "Active" :
+            player_combat_.phase == CP::Recovery    ? "Recovery" :
+            player_combat_.phase == CP::DodgeCancel ? "DodgeCancel" : "Idle";
         overlay_state.active_clip  = player_anim_.active_clip.c_str();
         overlay_state.combo_index  = player_combat_.combo_index;
         overlay_state.attack_yaw_deg =
@@ -618,7 +654,7 @@ void MovementApp::run() {
         overlay_state.hit_consumed = player_combat_.hit_consumed;
 
         // Hit-window diagnostics for current attack.
-        if (player_combat_.phase == CP::Attacking && !attack_table_.empty()) {
+        if (player_combat_.phase != CP::Idle && !attack_table_.empty()) {
             const int ci = player_combat_.combo_index;
             if (ci >= 0 && ci < static_cast<int>(player_combat_.combo_ids.size())) {
                 const std::string& atk_id = player_combat_.combo_ids[
@@ -626,15 +662,16 @@ void MovementApp::run() {
                 auto ait = attack_table_.find(atk_id);
                 if (ait != attack_table_.end()) {
                     const auto& def = ait->second;
-                    overlay_state.hit_window_start = def.hit_start;
-                    overlay_state.hit_window_end   = def.hit_end;
-                    const float elapsed   = player_anim_.time_seconds;
-                    const float remaining = player_combat_.clip_remaining;
-                    const float orig_dur  = elapsed + (remaining > 0.f ? remaining : 0.f);
-                    const float norm_t    = (orig_dur > 1e-5f) ? elapsed / orig_dur : 1.f;
+                    overlay_state.hit_window_start = def.hit_start_norm;
+                    overlay_state.hit_window_end   = def.hit_end_norm;
+                    const engine::character::AnimClip* clip =
+                        find_clip(player_asset_, def.clip);
+                    const float duration = clip != nullptr ? clip->duration_seconds : 1.f;
+                    const float norm_t =
+                        duration > 1e-5f ? player_anim_.time_seconds / duration : 1.f;
                     overlay_state.normalized_clip_time = norm_t;
                     overlay_state.in_hit_window =
-                        norm_t >= def.hit_start && norm_t <= def.hit_end;
+                        norm_t >= def.hit_start_norm && norm_t <= def.hit_end_norm;
                 }
             }
         } else {
