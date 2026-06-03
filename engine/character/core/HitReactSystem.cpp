@@ -7,9 +7,14 @@ namespace engine::character {
 
 void hit_react_tick(HitReact& react,
                     engine::movement::Transform& transform,
-                    float dt) {
+                    float dt,
+                    bool hitstop_active) {
     if (!react.playing_hit || react.timer <= 0.f) {
         react.playing_hit = false;
+        return;
+    }
+
+    if (hitstop_active) {
         return;
     }
 
@@ -33,7 +38,9 @@ void hit_react_tick(HitReact& react,
 void trigger_hit_react(HitReact& react,
                        engine::movement::Transform& /*transform*/,
                        const glm::vec3& direction,
-                       AnimationState& anim) {
+                       AnimationState& anim,
+                       CombatController* attacker_combat,
+                       ScreenShake* shake) {
     react.playing_hit       = true;
     react.timer             = react.knockback_duration;
     // Horizontal knockback only.
@@ -44,6 +51,49 @@ void trigger_hit_react(HitReact& react,
     anim.time_seconds = 0.f;
     anim.looping      = false;
     anim.speed        = 1.f;
+
+    if (attacker_combat != nullptr) {
+        attacker_combat->hitstop_active = true;
+        attacker_combat->phase_before_hitstop = attacker_combat->phase;
+        attacker_combat->hitstop_frames = 5;
+    }
+
+    if (shake != nullptr) {
+        apply_screenshake(*shake, 0.04f, 0.12f);
+    }
+}
+
+void apply_screenshake(ScreenShake& shake, float magnitude, float duration) {
+    shake.magnitude = std::max(shake.magnitude, magnitude);
+    shake.duration = std::max(shake.duration, duration);
+    shake.timer = std::max(shake.timer, duration);
+}
+
+void tick_screenshake(ScreenShake& shake, float dt) {
+    if (shake.timer <= 0.f) {
+        shake.timer = 0.f;
+        shake.magnitude = 0.f;
+        return;
+    }
+
+    shake.timer -= dt;
+    if (shake.timer <= 0.f) {
+        shake.timer = 0.f;
+        shake.magnitude = 0.f;
+    }
+}
+
+glm::vec3 screenshake_offset(const ScreenShake& shake) {
+    if (shake.timer <= 0.f || shake.duration <= 1e-5f || shake.magnitude <= 0.f) {
+        return glm::vec3(0.f);
+    }
+
+    const float norm = shake.timer / shake.duration;
+    const float amount = shake.magnitude * norm;
+    const float phase = shake.timer * 97.f;
+    return glm::vec3(std::sin(phase) * amount,
+                     std::sin(phase * 1.37f) * amount * 0.5f,
+                     0.f);
 }
 
 } // namespace engine::character
