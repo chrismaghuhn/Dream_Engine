@@ -1,5 +1,6 @@
 #include "engine/Engine.hpp"
 
+#include "engine/audio/AudioEngine.hpp"
 #include "engine/core/CrashHandlerWin32.hpp"
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/Log.hpp"
@@ -109,6 +110,18 @@ bool Engine::startup() {
         world_ = flecs::world{};
         return false;
     }
+
+    if (!audio_.init(world_, chunk_store_, config_)) {
+        SPDLOG_ERROR("Failed to initialize AudioEngine");
+        physics_.shutdown();
+        ui_host_.shutdown();
+        renderer_.shutdown();
+        platform_.shutdown();
+        jobs_.shutdown();
+        world_ = flecs::world{};
+        return false;
+    }
+
     if (config_.thin_terrain_preview()) {
         thin_terrain_.init(world_, chunk_store_, config_.world());
         thin_terrain_.build_cpu_meshes();
@@ -130,7 +143,7 @@ bool Engine::startup() {
     }
 
     started_ = true;
-    SPDLOG_INFO("Engine startup complete (steps 1-11)");
+    SPDLOG_INFO("Engine startup complete (steps 1-16)");
     return true;
 }
 
@@ -140,6 +153,7 @@ void Engine::shutdown() {
     }
 
     (void)save_world_to_disk();
+    audio_.shutdown();
     physics_.shutdown();
     set_chunk_gpu_services(nullptr);
     ui_host_.shutdown();
@@ -328,6 +342,14 @@ void Engine::run() {
 
         sim_clock_.advance(frame_delta);
         sim_tick_ += sim_clock_.step([this]() { tick_player_simulation(); });
+
+        audio_.tick();
+        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            audio_.update_listener(
+                camera_component->camera.position,
+                camera_component->camera.forward(),
+                camera_component->camera.up());
+        }
 
         if (input_.save_pressed()) {
             (void)save_world_to_disk();

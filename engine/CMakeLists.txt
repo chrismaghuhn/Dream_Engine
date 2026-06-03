@@ -91,6 +91,20 @@ if(ENGINE_JOLT)
     endif()
 endif()
 
+set(ENGINE_AUDIO_SOURCES
+    audio/AudioEngine.cpp
+    audio/OcclusionGrid.cpp
+)
+
+add_library(engine_audio STATIC ${ENGINE_AUDIO_SOURCES})
+target_include_directories(engine_audio PUBLIC ${CMAKE_SOURCE_DIR})
+target_link_libraries(engine_audio PUBLIC
+    glm::glm
+    spdlog::spdlog
+    flecs_static
+    miniaudio
+)
+
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})
 target_include_directories(engine_core PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_definitions(engine_core PUBLIC ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -101,6 +115,7 @@ target_link_libraries(engine_core PUBLIC
     engine_platform
     engine_render
     engine_physics
+    engine_audio
     flecs_static
     enkiTS
     libzstd_static

@@ -18,6 +18,7 @@
 #include "engine/gameplay/PlayerMotorConfig.hpp"
 #include "engine/gameplay/PlayerSpawnReadyGate.hpp"
 #include "engine/gameplay/VoxelMovementConfig.hpp"
+#include "engine/audio/AudioEngine.hpp"
 #include "engine/physics/PhysicsSystem.hpp"
 #include "engine/persist/SaveService.hpp"
 #include "engine/world/WorldPosition.hpp"
@@ -76,6 +77,7 @@ private:
     flecs::world world_{};
     flecs::entity player_fly_{};
     PhysicsSystem physics_{};
+    AudioEngine audio_{};
     PlayerMotor player_motor_{};
     PlayerMotorConfig player_motor_config_{};
     VoxelMovementConfig voxel_movement_config_{};

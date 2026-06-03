@@ -19,6 +19,7 @@ add_executable(engine_tests
     procgen/test_heightmap_worldgen.cpp
     procgen/test_terrain_graph.cpp
     gameplay/test_block_events.cpp
+    audio/test_occlusion_grid.cpp
     physics/test_capsule_resolver.cpp
     persist/test_minimal_save.cpp
     persist/test_region_save.cpp
@@ -29,7 +30,7 @@ add_executable(engine_tests
     render/test_staging_ring.cpp
     render/test_gpu_mesh_pool.cpp
 )
-target_link_libraries(engine_tests PRIVATE engine_core Catch2::Catch2WithMain)
+target_link_libraries(engine_tests PRIVATE engine_core engine_audio Catch2::Catch2WithMain)
 target_compile_definitions(engine_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 include(Catch)
 catch_discover_tests(engine_tests)
