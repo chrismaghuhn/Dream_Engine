@@ -47,9 +47,9 @@ bool VulkanContext::init(Platform& platform, bool enable_validation) {
         return true;
     }
 
-    validation_enabled_ = enable_validation && check_validation_layer_support();
-
     VK_CHECK(volkInitialize());
+
+    validation_enabled_ = enable_validation && check_validation_layer_support();
 
     if (!create_instance(validation_enabled_)) {
         return false;
