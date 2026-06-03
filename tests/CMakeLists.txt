@@ -1,6 +1,7 @@
 add_executable(engine_tests
     core/test_smoke.cpp
     core/test_math.cpp
+    core/test_sim_clock.cpp
     core/test_engine_config.cpp
     core/test_default_toml.cpp
     world/test_indexing.cpp
