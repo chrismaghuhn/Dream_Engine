@@ -4,6 +4,8 @@
 #include "engine/world/Chunk.hpp"
 #include "engine/world/WorldEvents.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -20,7 +22,16 @@ constexpr float kRaycastEpsilon = 1e-4f;
 }
 
 void mark_chunk_dirty(flecs::world& world, ChunkStore& store, ChunkCoord coord) {
-    const uint64_t entity_id = store.entity_for(coord);
+    uint64_t entity_id = store.entity_for(coord);
+    if (entity_id == 0 && store.try_get(coord) != nullptr) {
+        const ChunkSlotRef slot_ref = store.slot_ref_for(coord);
+        flecs::entity chunk_entity = world.entity()
+                                         .set<ChunkCoord>(coord)
+                                         .set<ChunkSlotRef>(slot_ref);
+        store.set_entity_for(coord, chunk_entity.id());
+        entity_id = chunk_entity.id();
+    }
+
     if (entity_id == 0) {
         return;
     }
@@ -115,9 +126,8 @@ std::optional<BlockRaycastHit> raycast_blocks(
     };
 
     std::optional<BlockPos> previous_cell;
-    const int max_steps = static_cast<int>(std::ceil(max_reach)) + 2;
 
-    for (int i = 0; i < max_steps; ++i) {
+    while (true) {
         const BlockPos current = BlockPos::from_world_blocks(voxel.x, voxel.y, voxel.z);
         if (is_raycast_target(store, current)) {
             BlockRaycastHit hit{};
@@ -129,6 +139,11 @@ std::optional<BlockRaycastHit> raycast_blocks(
                 hit.place_pos = current;
             }
             return hit;
+        }
+
+        const float next_t = std::min({t_max.x, t_max.y, t_max.z});
+        if (next_t > max_reach) {
+            break;
         }
 
         previous_cell = current;
@@ -253,22 +268,86 @@ void handle_block_input(
     const CreativeBlockPicker* creative_picker,
     uint64_t tick,
     uint64_t source_entity) {
+    const bool wants_break = input.break_pressed();
+    const bool wants_place = input.place_pressed();
+    if (!wants_break && !wants_place) {
+        return;
+    }
+
     const auto hit = raycast_blocks(camera, store, world_config.player_reach);
     if (!hit || !hit->hit) {
+        SPDLOG_DEBUG(
+            "BlockInteraction: {} missed raycast pos=({:.2f},{:.2f},{:.2f}) yaw={:.2f} pitch={:.2f} mouse_delta=({:.2f},{:.2f}) dir=({:.2f},{:.2f},{:.2f}) reach={:.2f}",
+            wants_break ? "break" : "place",
+            camera.position.x,
+            camera.position.y,
+            camera.position.z,
+            camera.yaw,
+            camera.pitch,
+            input.mouse_delta_x(),
+            input.mouse_delta_y(),
+            camera.forward().x,
+            camera.forward().y,
+            camera.forward().z,
+            world_config.player_reach);
         return;
     }
 
-    if (input.break_pressed()) {
-        (void)break_block_at(world, store, hit->block, tick, source_entity);
+    if (wants_break) {
+        const bool applied = break_block_at(world, store, hit->block, tick, source_entity);
+        const glm::ivec3 world_block = hit->block.to_world_blocks();
+        SPDLOG_DEBUG(
+            "BlockInteraction: break {} target=({},{},{}) chunk=({},{},{}) local=({},{},{}) yaw={:.2f} pitch={:.2f} mouse_delta=({:.2f},{:.2f}) state={}",
+            applied ? "applied" : "rejected",
+            world_block.x,
+            world_block.y,
+            world_block.z,
+            hit->block.chunk.x,
+            hit->block.chunk.y,
+            hit->block.chunk.z,
+            hit->block.block_local.x,
+            hit->block.block_local.y,
+            hit->block.block_local.z,
+            camera.yaw,
+            camera.pitch,
+            input.mouse_delta_x(),
+            input.mouse_delta_y(),
+            store.read_block(hit->block).raw);
         return;
     }
 
-    if (input.place_pressed()) {
+    if (wants_place) {
         BlockId block_id = inventory.selected_block_id();
         if (creative_place && creative_picker != nullptr) {
             block_id = creative_picker->selected_id();
         }
-        (void)place_block_at(world, store, hit->place_pos, block_id, tick, source_entity);
+        const BlockState before = store.read_block(hit->place_pos);
+        const bool applied = place_block_at(world, store, hit->place_pos, block_id, tick, source_entity);
+        const glm::ivec3 hit_world_block = hit->block.to_world_blocks();
+        const glm::ivec3 place_world_block = hit->place_pos.to_world_blocks();
+        SPDLOG_DEBUG(
+            "BlockInteraction: place {} hit=({},{},{}) target=({},{},{}) chunk=({},{},{}) local=({},{},{}) yaw={:.2f} pitch={:.2f} mouse_delta=({:.2f},{:.2f}) selected={} hit_state={} before={} after={}",
+            applied ? "applied" : "rejected",
+            hit_world_block.x,
+            hit_world_block.y,
+            hit_world_block.z,
+            place_world_block.x,
+            place_world_block.y,
+            place_world_block.z,
+            hit->place_pos.chunk.x,
+            hit->place_pos.chunk.y,
+            hit->place_pos.chunk.z,
+            hit->place_pos.block_local.x,
+            hit->place_pos.block_local.y,
+            hit->place_pos.block_local.z,
+            camera.yaw,
+            camera.pitch,
+            input.mouse_delta_x(),
+            input.mouse_delta_y(),
+            block_id,
+            store.read_block(hit->block).raw,
+            before.raw,
+            store.read_block(hit->place_pos).raw);
     }
 }
 

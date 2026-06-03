@@ -2,6 +2,8 @@
 
 #include "engine/world/ChunkLifecycle.hpp"
 
+#include <algorithm>
+#include <cstdlib>
 #include <vector>
 
 namespace engine {
@@ -44,7 +46,7 @@ void load_spawn_neighborhood(
                     continue;
                 }
                 if (store.try_get(coord) == nullptr) {
-                    load_chunk(ecs, store, coord, world_config);
+                    (void)load_chunk(ecs, store, coord, world_config);
                 }
             }
         }
@@ -69,28 +71,56 @@ int update_streaming(
 
     const int load_budget = streaming.max_chunks_load_per_update;
     int loaded_this_update = 0;
-    bool load_budget_exhausted = false;
 
-    for (int cy = cy_min; cy <= cy_max && !load_budget_exhausted; ++cy) {
-        for (int cx = player_chunk.x - r; cx <= player_chunk.x + r && !load_budget_exhausted; ++cx) {
+    std::vector<ChunkCoord> load_candidates;
+    for (int cy = cy_min; cy <= cy_max; ++cy) {
+        for (int cx = player_chunk.x - r; cx <= player_chunk.x + r; ++cx) {
             for (int cz = player_chunk.z - r; cz <= player_chunk.z + r; ++cz) {
                 const ChunkCoord coord{cx, cy, cz};
                 if (!chunk_in_streaming_set(coord, player_chunk, streaming, world_config)) {
                     continue;
                 }
                 if (store.try_get(coord) == nullptr) {
-                    load_chunk(ecs, store, coord, world_config);
-                    if (out_loaded_coords != nullptr) {
-                        out_loaded_coords->push_back(coord);
-                    }
-                    ++loaded_this_update;
-                    if (load_budget > 0 && loaded_this_update >= load_budget) {
-                        load_budget_exhausted = true;
-                        break;
-                    }
+                    load_candidates.push_back(coord);
                 }
             }
         }
+    }
+
+    std::sort(load_candidates.begin(), load_candidates.end(), [&](const ChunkCoord& a, const ChunkCoord& b) {
+        const int ady = std::abs(a.y - player_chunk.y);
+        const int bdy = std::abs(b.y - player_chunk.y);
+        if (ady != bdy) {
+            return ady < bdy;
+        }
+
+        const int adx = a.x - player_chunk.x;
+        const int adz = a.z - player_chunk.z;
+        const int bdx = b.x - player_chunk.x;
+        const int bdz = b.z - player_chunk.z;
+        const int ad2 = adx * adx + adz * adz;
+        const int bd2 = bdx * bdx + bdz * bdz;
+        if (ad2 != bd2) {
+            return ad2 < bd2;
+        }
+        if (a.x != b.x) {
+            return a.x < b.x;
+        }
+        if (a.z != b.z) {
+            return a.z < b.z;
+        }
+        return a.y < b.y;
+    });
+
+    for (const ChunkCoord coord : load_candidates) {
+        if (load_budget > 0 && loaded_this_update >= load_budget) {
+            break;
+        }
+        (void)load_chunk(ecs, store, coord, world_config);
+        if (out_loaded_coords != nullptr) {
+            out_loaded_coords->push_back(coord);
+        }
+        ++loaded_this_update;
     }
 
     std::vector<ChunkCoord> to_unload;

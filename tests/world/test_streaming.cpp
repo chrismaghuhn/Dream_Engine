@@ -127,6 +127,27 @@ TEST_CASE("update_streaming respects max_chunks_load_per_update") {
     REQUIRE(store.loaded_count() > 7);
 }
 
+TEST_CASE("update_streaming prioritizes player height layer when load budget is limited") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(128);
+
+    engine::StreamingConfig streaming{};
+    streaming.max_loaded_chunks = 128;
+    streaming.horizontal_radius_chunks = 3;
+    streaming.vertical_radius_chunks = 2;
+    streaming.max_chunks_load_per_update = 4;
+
+    const engine::WorldConfig world_config = test_world_config();
+    const engine::ChunkCoord player{0, 2, 0};
+
+    engine::update_streaming(store, world, streaming, world_config, player);
+
+    REQUIRE(store.try_get(player) != nullptr);
+}
+
 TEST_CASE("load_spawn_neighborhood loads 3x3x3 without full streaming radius") {
     flecs::world world;
     world.import<engine::WorldModule>();

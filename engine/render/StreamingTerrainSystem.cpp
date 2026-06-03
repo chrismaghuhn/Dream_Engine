@@ -52,6 +52,14 @@ void StreamingTerrainSystem::mark_uploads_complete(const std::vector<MeshUploadF
             section_state.opaque_draw_index_count =
                 clamp_index_count(slot, section_state.opaque_index_count);
             section_state.opaque_gpu_uploaded = section_state.opaque_draw_index_count > 0;
+            SPDLOG_DEBUG(
+                "StreamingTerrainSystem: opaque upload complete coord=({},{},{}) section={} slot={} indices={}",
+                mark.coord.x,
+                mark.coord.y,
+                mark.coord.z,
+                mark.section_index,
+                mark.slot_id,
+                section_state.opaque_draw_index_count);
             // New mesh is confirmed on GPU; release the stale slot held for seamless rendering.
             if (section_state.stale_opaque_gpu_slot_id != 0) {
                 pending_slot_frees_.push_back(section_state.stale_opaque_gpu_slot_id);
@@ -71,6 +79,14 @@ void StreamingTerrainSystem::mark_uploads_complete(const std::vector<MeshUploadF
         section_state.water_draw_index_count =
             clamp_index_count(slot, section_state.water_index_count);
         section_state.water_gpu_uploaded = section_state.water_draw_index_count > 0;
+        SPDLOG_DEBUG(
+            "StreamingTerrainSystem: water upload complete coord=({},{},{}) section={} slot={} indices={}",
+            mark.coord.x,
+            mark.coord.y,
+            mark.coord.z,
+            mark.section_index,
+            mark.slot_id,
+            section_state.water_draw_index_count);
         if (section_state.stale_water_gpu_slot_id != 0) {
             pending_slot_frees_.push_back(section_state.stale_water_gpu_slot_id);
             section_state.stale_water_gpu_slot_id = 0;
@@ -172,6 +188,11 @@ void StreamingTerrainSystem::register_observers(flecs::world& world) {
             // old mesh stays visible until the new one is uploaded (no flash).
             soft_invalidate_chunk_mesh(*coord);
             schedule_chunk_mesh(*coord);
+            SPDLOG_DEBUG(
+                "StreamingTerrainSystem: dirty chunk scheduled for remesh coord=({},{},{})",
+                coord->x,
+                coord->y,
+                coord->z);
             // Remove the tag so subsequent block mutations in the same chunk
             // trigger OnAdd again and re-enter this path.
             entity.remove<ChunkDirty>();
@@ -403,6 +424,15 @@ void StreamingTerrainSystem::drain_mesh_completions() {
         section_state.mesh_ready = true;
         section_state.mesh_job_pending = false;
         section_state.needs_remesh = false;
+        SPDLOG_DEBUG(
+            "StreamingTerrainSystem: mesh completion coord=({},{},{}) section={} opaque_indices={} water_indices={} serial={}",
+            completion.coord.x,
+            completion.coord.y,
+            completion.coord.z,
+            completion.section_index,
+            section_state.opaque_index_count,
+            section_state.water_index_count,
+            completion.schedule_serial);
         // Promote the active GPU slot to "stale" so build_snapshot can keep
         // drawing the previous geometry while the new upload is in flight.
         //
@@ -659,6 +689,14 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue, GpuMes
                 .vertices = section_state.opaque_vertices,
                 .indices = section_state.opaque_indices,
             });
+            SPDLOG_DEBUG(
+                "StreamingTerrainSystem: opaque upload queued coord=({},{},{}) section={} slot={} indices={}",
+                candidate.coord.x,
+                candidate.coord.y,
+                candidate.coord.z,
+                candidate.section_index,
+                section_state.opaque_gpu_slot_id,
+                section_state.opaque_index_count);
             section_state.opaque_upload_queued = true;
             ++queued_this_frame;
             continue;
@@ -688,6 +726,14 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue, GpuMes
             .vertices = section_state.water_vertices,
             .indices = section_state.water_indices,
         });
+        SPDLOG_DEBUG(
+            "StreamingTerrainSystem: water upload queued coord=({},{},{}) section={} slot={} indices={}",
+            candidate.coord.x,
+            candidate.coord.y,
+            candidate.coord.z,
+            candidate.section_index,
+            section_state.water_gpu_slot_id,
+            section_state.water_index_count);
         section_state.water_upload_queued = true;
         ++queued_this_frame;
     }

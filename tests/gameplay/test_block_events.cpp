@@ -78,6 +78,25 @@ TEST_CASE("place emits exactly one EvtBlockPlaced") {
     REQUIRE(placed_count == 1);
 }
 
+TEST_CASE("raycast reaches diagonal block within reach") {
+    engine::ChunkStore store;
+    store.init(4);
+    REQUIRE(store.allocate(engine::ChunkCoord{0, 0, 0}) != nullptr);
+
+    const engine::BlockPos target = engine::BlockPos::from_world_blocks(4, 8, 4);
+    REQUIRE(store.write_block(target, engine::make_block_state(engine::BLOCK_STONE, 0)));
+
+    engine::Camera camera{};
+    camera.position = glm::vec3{0.5f, 8.5f, 0.5f};
+    camera.yaw = 45.f;
+    camera.pitch = 0.f;
+
+    const auto hit = engine::raycast_blocks(camera, store, 6.f);
+
+    REQUIRE(hit.has_value());
+    REQUIRE(hit->block.to_world_blocks() == target.to_world_blocks());
+}
+
 TEST_CASE("break_block_at adds ChunkDirty to chunk entity") {
     flecs::world world;
     world.import<engine::WorldModule>();
@@ -96,6 +115,30 @@ TEST_CASE("break_block_at adds ChunkDirty to chunk entity") {
 
     REQUIRE_FALSE(chunk_entity.has<engine::ChunkDirty>());
     REQUIRE(engine::break_block_at(world, store, target, 1));
+    REQUIRE(chunk_entity.has<engine::ChunkDirty>());
+}
+
+TEST_CASE("break_block_at creates missing chunk entity before marking dirty") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(16);
+
+    const engine::ChunkCoord coord{0, 0, 0};
+    REQUIRE(store.allocate(coord) != nullptr);
+
+    const engine::BlockPos target = engine::BlockPos::from_world_blocks(8, 8, 8);
+    const engine::BlockState stone = engine::make_block_state(engine::BLOCK_STONE, 0);
+    REQUIRE(store.write_block(target, stone));
+    REQUIRE(store.entity_for(coord) == 0);
+
+    REQUIRE(engine::break_block_at(world, store, target, 1));
+
+    const uint64_t entity_id = store.entity_for(coord);
+    REQUIRE(entity_id != 0);
+    flecs::entity chunk_entity(world, entity_id);
+    REQUIRE(chunk_entity.is_alive());
     REQUIRE(chunk_entity.has<engine::ChunkDirty>());
 }
 
