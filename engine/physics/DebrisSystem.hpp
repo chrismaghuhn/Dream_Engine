@@ -40,6 +40,7 @@ private:
     int max_active_ = 0;
     float despawn_radius_ = 0.f;
     std::shared_ptr<std::atomic<int>> active_count_{};
+    flecs::query<DebrisTag, DebrisTransform> debris_query_;
 };
 
 } // namespace engine

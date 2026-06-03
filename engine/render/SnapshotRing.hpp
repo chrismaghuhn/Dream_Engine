@@ -32,15 +32,14 @@ public:
         return snapshots_[slot];
     }
 
-    [[nodiscard]] std::uint32_t pick_write_slot() const {
-        for (std::uint32_t slot = 0; slot < slot_count_; ++slot) {
-            if (is_slot_signaled(slot)) {
-                return slot;
-            }
-        }
-        assert(false && "no signaled snapshot slot available");
-        return 0;
-    }
+    /// Returns a snapshot slot whose GPU work has finished; resets its fence for the next submit.
+    [[nodiscard]] std::uint32_t pick_write_slot();
+
+    /// After vkDeviceWaitIdle / device-lost: recreate unsignaled fences (call after vkDeviceWaitIdle).
+    void reset_fences_after_idle();
+
+    /// True if the last pick_write_slot() hit VK_ERROR_DEVICE_LOST (cleared on read).
+    [[nodiscard]] bool consume_pick_device_lost();
 
     void mark_submitted(std::uint32_t slot) {
         assert(slot < slot_count_);
@@ -59,13 +58,18 @@ public:
 private:
     [[nodiscard]] bool is_slot_signaled(std::uint32_t slot) const {
         if (device_ != VK_NULL_HANDLE) {
-            return vkGetFenceStatus(device_, snapshot_fences_[slot]) == VK_SUCCESS;
+            const VkFence fence = snapshot_fences_[slot];
+            if (fence == VK_NULL_HANDLE) {
+                return true;
+            }
+            return vkGetFenceStatus(device_, fence) == VK_SUCCESS;
         }
         return slot_signaled_[slot];
     }
 
     VkDevice device_ = VK_NULL_HANDLE;
     std::uint32_t slot_count_;
+    bool pick_device_lost_ = false;
     std::vector<VkFence> snapshot_fences_;
     std::vector<bool> slot_signaled_;
     std::vector<WorldRenderSnapshot> snapshots_;

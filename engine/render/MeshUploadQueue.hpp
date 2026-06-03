@@ -3,6 +3,7 @@
 #include "engine/core/EngineConfig.hpp"
 #include "engine/render/GpuMeshPool.hpp"
 #include "engine/render/StagingRing.hpp"
+#include "engine/world/ChunkStore.hpp"
 #include "engine/world/SectionIndexing.hpp"
 
 #include <cstddef>
@@ -14,8 +15,18 @@
 
 namespace engine {
 
-struct MeshUploadRequest {
+struct MeshUploadFlushMark {
+    ChunkCoord coord{};
+    std::uint8_t section_index = 0;
     std::uint32_t slot_id = 0;
+    bool water = false;
+};
+
+struct MeshUploadRequest {
+    ChunkCoord coord{};
+    std::uint8_t section_index = 0;
+    std::uint32_t slot_id = 0;
+    bool water = false;
     std::vector<TerrainVertex> vertices;
     std::vector<std::uint32_t> indices;
 };
@@ -30,6 +41,9 @@ public:
     void enqueue(MeshUploadRequest request);
     void flush(VkCommandBuffer command_buffer, std::uint64_t frame_index, GpuMeshPool& mesh_pool);
 
+    [[nodiscard]] const std::vector<MeshUploadFlushMark>& last_flushed_marks() const {
+        return last_flushed_marks_;
+    }
     [[nodiscard]] bool has_pending() const { return !pending_.empty(); }
     [[nodiscard]] std::size_t pending_count() const { return pending_.size(); }
     [[nodiscard]] const StagingRing& staging_ring() const { return staging_ring_; }
@@ -65,6 +79,7 @@ private:
     std::vector<StagingGpuSlot> staging_gpu_;
     std::deque<MeshUploadRequest> pending_;
     std::deque<PendingCopy> ready_copies_;
+    std::vector<MeshUploadFlushMark> last_flushed_marks_;
 };
 
 } // namespace engine

@@ -53,6 +53,8 @@ public:
 
 private:
     void render_build(std::uint32_t snapshot_slot);
+    std::uint32_t last_draw_sections_ = 0;
+    std::uint32_t last_submit_snapshot_slot_ = 0;
     [[nodiscard]] SaveWorldRequest make_save_request();
     [[nodiscard]] WorldPosition current_player_position() const;
     void apply_player_position(const WorldPosition& position);

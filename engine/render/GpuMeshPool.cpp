@@ -2,11 +2,21 @@
 
 #include "engine/render/VkCheck.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 
 namespace engine {
 
 namespace {
+
+[[nodiscard]] bool vk_ok(VkResult result, const char* operation) {
+    if (result == VK_SUCCESS) {
+        return true;
+    }
+    SPDLOG_ERROR("GpuMeshPool {} failed: {}", operation, vk_result_string(result));
+    return false;
+}
 
 constexpr std::array<std::size_t, static_cast<std::size_t>(MeshBucket::Count)> kVertexCapacities{
     4 * 1024, 16 * 1024, 64 * 1024, 256 * 1024};
@@ -124,6 +134,7 @@ void GpuMeshPool::destroy_slot_resources(GpuMeshSlot& slot) {
 
 void GpuMeshPool::return_slot_to_freelist(GpuMeshSlot& slot) {
     destroy_slot_resources(slot);
+    slot.live = false;
     free_lists_[static_cast<std::size_t>(slot.bucket)].push_back(slot.slot_id);
 }
 
@@ -155,8 +166,11 @@ std::uint32_t GpuMeshPool::allocate_sized(const std::size_t vertex_bytes, const 
     slot.index_capacity = index_bytes;
     slot.live = true;
 
-    VK_CHECK(vkCreateBuffer(device_, &vertex_info, nullptr, &slot.vertex_buffer));
-    VK_CHECK(vkCreateBuffer(device_, &index_info, nullptr, &slot.index_buffer));
+    if (!vk_ok(vkCreateBuffer(device_, &vertex_info, nullptr, &slot.vertex_buffer), "vkCreateBuffer(vertex)") ||
+        !vk_ok(vkCreateBuffer(device_, &index_info, nullptr, &slot.index_buffer), "vkCreateBuffer(index)")) {
+        destroy_slot_resources(slot);
+        return 0;
+    }
 
     VkMemoryRequirements vertex_requirements{};
     VkMemoryRequirements index_requirements{};
@@ -170,8 +184,7 @@ std::uint32_t GpuMeshPool::allocate_sized(const std::size_t vertex_bytes, const 
     const VkDeviceSize total_size = index_offset + index_requirements.size;
 
     if (bytes_used_ + static_cast<std::size_t>(total_size) > bytes_budget_) {
-        vkDestroyBuffer(device_, slot.vertex_buffer, nullptr);
-        vkDestroyBuffer(device_, slot.index_buffer, nullptr);
+        destroy_slot_resources(slot);
         return 0;
     }
 
@@ -180,8 +193,7 @@ std::uint32_t GpuMeshPool::allocate_sized(const std::size_t vertex_bytes, const 
         vertex_requirements.memoryTypeBits | index_requirements.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (memory_type == UINT32_MAX) {
-        vkDestroyBuffer(device_, slot.vertex_buffer, nullptr);
-        vkDestroyBuffer(device_, slot.index_buffer, nullptr);
+        destroy_slot_resources(slot);
         return 0;
     }
 
@@ -190,9 +202,13 @@ std::uint32_t GpuMeshPool::allocate_sized(const std::size_t vertex_bytes, const 
         .allocationSize = total_size,
         .memoryTypeIndex = memory_type,
     };
-    VK_CHECK(vkAllocateMemory(device_, &alloc_info, nullptr, &slot.memory));
-    VK_CHECK(vkBindBufferMemory(device_, slot.vertex_buffer, slot.memory, 0));
-    VK_CHECK(vkBindBufferMemory(device_, slot.index_buffer, slot.memory, index_offset));
+    if (!vk_ok(vkAllocateMemory(device_, &alloc_info, nullptr, &slot.memory), "vkAllocateMemory") ||
+        !vk_ok(vkBindBufferMemory(device_, slot.vertex_buffer, slot.memory, 0), "vkBindBufferMemory(vertex)") ||
+        !vk_ok(vkBindBufferMemory(device_, slot.index_buffer, slot.memory, index_offset),
+               "vkBindBufferMemory(index)")) {
+        destroy_slot_resources(slot);
+        return 0;
+    }
 
     slot.memory_size = total_size;
     bytes_used_ += static_cast<std::size_t>(total_size);
@@ -200,14 +216,14 @@ std::uint32_t GpuMeshPool::allocate_sized(const std::size_t vertex_bytes, const 
     return slot.slot_id;
 }
 
-std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
-    auto& free_list = free_lists_[static_cast<std::size_t>(bucket)];
-    if (!free_list.empty()) {
-        const std::uint32_t slot_id = free_list.back();
-        free_list.pop_back();
-        if (GpuMeshSlot* slot = find_slot(slot_id)) {
-            return slot_id;
-        }
+bool GpuMeshPool::create_bucket_gpu_resources(GpuMeshSlot& slot, const MeshBucket bucket) {
+    if (device_ == VK_NULL_HANDLE) {
+        return false;
+    }
+
+    if (slot.vertex_buffer != VK_NULL_HANDLE || slot.index_buffer != VK_NULL_HANDLE ||
+        slot.memory != VK_NULL_HANDLE) {
+        destroy_slot_resources(slot);
     }
 
     const std::size_t vertex_capacity = mesh_bucket_vertex_capacity(bucket);
@@ -226,15 +242,11 @@ std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
 
-    GpuMeshSlot slot{};
-    slot.slot_id = next_slot_id_++;
-    slot.bucket = bucket;
-    slot.vertex_capacity = vertex_capacity;
-    slot.index_capacity = index_capacity;
-    slot.live = true;
-
-    VK_CHECK(vkCreateBuffer(device_, &vertex_info, nullptr, &slot.vertex_buffer));
-    VK_CHECK(vkCreateBuffer(device_, &index_info, nullptr, &slot.index_buffer));
+    if (!vk_ok(vkCreateBuffer(device_, &vertex_info, nullptr, &slot.vertex_buffer), "vkCreateBuffer(vertex)") ||
+        !vk_ok(vkCreateBuffer(device_, &index_info, nullptr, &slot.index_buffer), "vkCreateBuffer(index)")) {
+        destroy_slot_resources(slot);
+        return false;
+    }
 
     VkMemoryRequirements vertex_requirements{};
     VkMemoryRequirements index_requirements{};
@@ -249,9 +261,8 @@ std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
     const VkDeviceSize total_size = index_offset + index_requirements.size;
 
     if (bytes_used_ + static_cast<std::size_t>(total_size) > bytes_budget_) {
-        vkDestroyBuffer(device_, slot.vertex_buffer, nullptr);
-        vkDestroyBuffer(device_, slot.index_buffer, nullptr);
-        return 0;
+        destroy_slot_resources(slot);
+        return false;
     }
 
     const std::uint32_t memory_type = find_memory_type(
@@ -259,9 +270,8 @@ std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
         vertex_requirements.memoryTypeBits | index_requirements.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (memory_type == UINT32_MAX) {
-        vkDestroyBuffer(device_, slot.vertex_buffer, nullptr);
-        vkDestroyBuffer(device_, slot.index_buffer, nullptr);
-        return 0;
+        destroy_slot_resources(slot);
+        return false;
     }
 
     const VkMemoryAllocateInfo alloc_info{
@@ -269,18 +279,65 @@ std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
         .allocationSize = total_size,
         .memoryTypeIndex = memory_type,
     };
-    VK_CHECK(vkAllocateMemory(device_, &alloc_info, nullptr, &slot.memory));
-    VK_CHECK(vkBindBufferMemory(device_, slot.vertex_buffer, slot.memory, vertex_offset));
-    VK_CHECK(vkBindBufferMemory(device_, slot.index_buffer, slot.memory, index_offset));
+    if (!vk_ok(vkAllocateMemory(device_, &alloc_info, nullptr, &slot.memory), "vkAllocateMemory") ||
+        !vk_ok(vkBindBufferMemory(device_, slot.vertex_buffer, slot.memory, vertex_offset),
+               "vkBindBufferMemory(vertex)") ||
+        !vk_ok(vkBindBufferMemory(device_, slot.index_buffer, slot.memory, index_offset),
+               "vkBindBufferMemory(index)")) {
+        destroy_slot_resources(slot);
+        return false;
+    }
 
     slot.memory_size = total_size;
     bytes_used_ += static_cast<std::size_t>(total_size);
+    return true;
+}
+
+std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
+    auto& free_list = free_lists_[static_cast<std::size_t>(bucket)];
+    if (!free_list.empty()) {
+        const std::uint32_t slot_id = free_list.back();
+        free_list.pop_back();
+        if (GpuMeshSlot* slot = find_slot(slot_id)) {
+            if (!create_bucket_gpu_resources(*slot, bucket)) {
+                return 0;
+            }
+            slot->live = true;
+            return slot_id;
+        }
+    }
+
+    GpuMeshSlot slot{};
+    slot.slot_id = next_slot_id_++;
+    slot.bucket = bucket;
+    slot.vertex_capacity = mesh_bucket_vertex_capacity(bucket);
+    slot.index_capacity = mesh_bucket_index_capacity(bucket);
+
+    if (!create_bucket_gpu_resources(slot, bucket)) {
+        return 0;
+    }
+
+    slot.live = true;
     slots_.push_back(slot);
     return slot.slot_id;
 }
 
+std::size_t GpuMeshPool::live_slot_count() const {
+    std::size_t count = 0;
+    for (const GpuMeshSlot& slot : slots_) {
+        if (slot.live && slot.vertex_buffer != VK_NULL_HANDLE && slot.index_buffer != VK_NULL_HANDLE) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 std::uint32_t GpuMeshPool::allocate(const std::size_t vertex_bytes, const std::size_t index_bytes) {
     if (device_ == VK_NULL_HANDLE) {
+        return 0;
+    }
+
+    if (live_slot_count() >= kMaxLiveSlots) {
         return 0;
     }
 
@@ -302,9 +359,9 @@ std::uint32_t GpuMeshPool::allocate(const std::size_t vertex_bytes, const std::s
 std::uint32_t GpuMeshPool::regrow(const std::uint32_t old_slot_id,
                                   const std::size_t vertex_bytes,
                                   const std::size_t index_bytes,
-                                  const std::uint64_t last_used_frame) {
+                                  const std::uint32_t last_submit_snapshot_slot) {
     if (deferred_free_ != nullptr && old_slot_id != 0) {
-        deferred_free_->enqueue_free(old_slot_id, last_used_frame);
+        deferred_free_->enqueue_free(old_slot_id, last_submit_snapshot_slot);
     } else if (GpuMeshSlot* old_slot = find_slot(old_slot_id)) {
         return_slot_to_freelist(*old_slot);
     }
@@ -324,7 +381,8 @@ const GpuMeshSlot* GpuMeshPool::slot(const std::uint32_t slot_id) const {
 
 bool GpuMeshPool::is_live(const std::uint32_t slot_id) const {
     const GpuMeshSlot* slot = find_slot(slot_id);
-    return slot != nullptr && slot->live;
+    return slot != nullptr && slot->live && slot->vertex_buffer != VK_NULL_HANDLE &&
+           slot->index_buffer != VK_NULL_HANDLE;
 }
 
 } // namespace engine

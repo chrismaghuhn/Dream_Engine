@@ -115,6 +115,14 @@ void MeshUploadQueue::enqueue(MeshUploadRequest request) {
     if (request.slot_id == 0 || request.vertices.empty() || request.indices.empty()) {
         return;
     }
+
+    for (MeshUploadRequest& pending : pending_) {
+        if (pending.slot_id == request.slot_id) {
+            pending = std::move(request);
+            return;
+        }
+    }
+
     pending_.push_back(std::move(request));
 }
 
@@ -155,6 +163,9 @@ void MeshUploadQueue::flush(VkCommandBuffer command_buffer,
     if (device_ == VK_NULL_HANDLE) {
         return;
     }
+
+    last_flushed_marks_.clear();
+    ready_copies_.clear();
 
     const std::uint32_t ring_index =
         static_cast<std::uint32_t>(frame_index % staging_ring_.frames_in_flight());
@@ -207,28 +218,41 @@ void MeshUploadQueue::flush(VkCommandBuffer command_buffer,
             continue;
         }
 
+        if (vertex_bytes > slot->vertex_capacity || index_bytes > slot->index_capacity) {
+            continue;
+        }
+
+        const VkDeviceSize vtx_copy = static_cast<VkDeviceSize>(vertex_bytes);
+        const VkDeviceSize idx_copy = static_cast<VkDeviceSize>(index_bytes);
+
         const VkBufferCopy vertex_copy{
             .srcOffset = static_cast<VkDeviceSize>(staging_offset),
             .dstOffset = 0,
-            .size = static_cast<VkDeviceSize>(vertex_bytes),
+            .size = vtx_copy,
         };
         vkCmdCopyBuffer(command_buffer, staging.buffer, slot->vertex_buffer, 1, &vertex_copy);
 
         const VkBufferCopy index_copy{
             .srcOffset = static_cast<VkDeviceSize>(staging_offset + vertex_bytes),
             .dstOffset = 0,
-            .size = static_cast<VkDeviceSize>(index_bytes),
+            .size = idx_copy,
         };
         vkCmdCopyBuffer(command_buffer, staging.buffer, slot->index_buffer, 1, &index_copy);
 
-        record_copy_barrier(command_buffer, slot->vertex_buffer, 0, static_cast<VkDeviceSize>(vertex_bytes));
-        record_copy_barrier(command_buffer, slot->index_buffer, 0, static_cast<VkDeviceSize>(index_bytes));
+        record_copy_barrier(command_buffer, slot->vertex_buffer, 0, vtx_copy);
+        record_copy_barrier(command_buffer, slot->index_buffer, 0, idx_copy);
 
+        last_flushed_marks_.push_back(MeshUploadFlushMark{
+            .coord = request.coord,
+            .section_index = request.section_index,
+            .slot_id = request.slot_id,
+            .water = request.water,
+        });
         ready_copies_.push_back(PendingCopy{
             .slot_id = request.slot_id,
             .staging_offset = staging_offset,
-            .vertex_bytes = vertex_bytes,
-            .index_bytes = index_bytes,
+            .vertex_bytes = static_cast<std::size_t>(vtx_copy),
+            .index_bytes = static_cast<std::size_t>(idx_copy),
             .vertex_count = request.vertices.size(),
             .index_count = request.indices.size(),
         });

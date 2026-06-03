@@ -9,10 +9,10 @@ meshing = 0
 
 [engine.streaming]
 # Max chunks generated per frame (0 = unlimited; causes long freezes at startup)
-max_chunks_load_per_update = 24
+max_chunks_load_per_update = 4
 # Override auto RAM-derived radius (0 = auto, capped at 10 chunks)
-horizontal_radius_chunks = 8
-max_loaded_chunks = 512
+horizontal_radius_chunks = 6
+max_loaded_chunks = 192
 
 [engine.destruction]
 # 0 = auto from RAM in finalize_cpu

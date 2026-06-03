@@ -37,6 +37,7 @@ public:
 
     void write_indirect_commands(std::uint64_t frame_index,
                                  const WorldRenderSnapshot& snapshot,
+                                 const GpuMeshPool& mesh_pool,
                                  std::size_t opaque_draw_count);
 
     void record(VkCommandBuffer command_buffer,

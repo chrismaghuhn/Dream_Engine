@@ -70,7 +70,7 @@ void log_init() {
         spdlog::async_overflow_policy::block);
 
     logger->set_level(spdlog::level::info);
-    logger->flush_on(spdlog::level::warn);
+    logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%n] %v");
 }

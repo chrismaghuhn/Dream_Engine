@@ -123,7 +123,16 @@ namespace {
     info.RenderPass = renderer.render_pass();
     info.Subpass = 0;
     info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    info.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
+    info.CheckVkResultFn = [](VkResult result) {
+        if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
+            return;
+        }
+        if (result == VK_ERROR_DEVICE_LOST) {
+            SPDLOG_CRITICAL("ImGui Vulkan device lost");
+            return;
+        }
+        SPDLOG_CRITICAL("ImGui Vulkan error: {}", engine::vk_result_string(result));
+    };
     return info;
 }
 

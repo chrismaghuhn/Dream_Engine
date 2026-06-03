@@ -30,19 +30,21 @@ Optional Tracy profiling: add `-DENGINE_TRACY=ON` to the configure step.
 
 ## Default controls
 
-| Action | Input |
-|--------|-------|
-| Move | `W` / `A` / `S` / `D` |
-| Look | Mouse (captured when inventory is closed) |
-| Jump (walk mode) | `Space` |
-| Fly up / down (fly mode) | `Space` / `Ctrl` |
-| Toggle walk / fly | `F` |
-| Break block | Left mouse or `Q` |
-| Place block | Right mouse or `E` |
-| Hotbar slots | `1`–`9` |
-| Inventory | `I` |
-| Save world | `F5` |
-| Load world | `F9` |
+
+| Action                   | Input                                     |
+| ------------------------ | ----------------------------------------- |
+| Move                     | `W` / `A` / `S` / `D`                     |
+| Look                     | Mouse (captured when inventory is closed) |
+| Jump (walk mode)         | `Space`                                   |
+| Fly up / down (fly mode) | `Space` / `Ctrl`                          |
+| Toggle walk / fly        | `F`                                       |
+| Break block              | Left mouse or `Q`                         |
+| Place block              | Right mouse or `E`                        |
+| Hotbar slots             | `1`–`9`                                   |
+| Inventory                | `I`                                       |
+| Save world               | `F5`                                      |
+| Load world               | `F9`                                      |
+
 
 Walk mode is the default after spawn; press `F` to switch to fly navigation.
 
@@ -52,5 +54,6 @@ Worlds are written under `<repo>/saves/<world_name>/` (default world name: `defa
 
 ## Documentation
 
-- Design spec (v9): [`docs/superpowers/specs/2026-06-03-voxel-engine-design.md`](docs/superpowers/specs/2026-06-03-voxel-engine-design.md)
-- Phase 1 implementation plan: [`docs/superpowers/plans/2026-06-03-voxel-engine-phase1.md`](docs/superpowers/plans/2026-06-03-voxel-engine-phase1.md)
+- Design spec (v9): `[docs/superpowers/specs/2026-06-03-voxel-engine-design.md](docs/superpowers/specs/2026-06-03-voxel-engine-design.md)`
+- Phase 1 implementation plan: `[docs/superpowers/plans/2026-06-03-voxel-engine-phase1.md](docs/superpowers/plans/2026-06-03-voxel-engine-phase1.md)`
+

@@ -37,7 +37,7 @@ TEST_CASE("chunk unload enqueues mesh slots for deferred GPU free") {
 
     engine::ChunkGpuServices services{
         .deferred_free = &deferred_free,
-        .frame_index = [&]() { return frame_index; },
+        .submit_snapshot_slot = [&]() { return static_cast<std::uint32_t>(frame_index); },
     };
     engine::set_chunk_gpu_services(&services);
 
@@ -48,7 +48,8 @@ TEST_CASE("chunk unload enqueues mesh slots for deferred GPU free") {
     REQUIRE_FALSE(store.validate_slot_ref(before_ref));
     REQUIRE(deferred_free.pending_count() == 2);
     REQUIRE(deferred_free.pending()[0].slot_id == fake_slot);
-    REQUIRE(deferred_free.pending()[0].last_used_frame == frame_index);
+    REQUIRE(deferred_free.pending()[0].last_submit_snapshot_slot ==
+            static_cast<std::uint32_t>(frame_index));
     REQUIRE(deferred_free.pending()[1].slot_id == 102);
     REQUIRE(mesh_pool.is_live(fake_slot) == false);
     REQUIRE(mesh_pool.is_live(102) == false);
@@ -71,8 +72,9 @@ TEST_CASE("pending unload chunk excluded from streaming terrain snapshot") {
     snapshot.view = glm::mat4(1.f);
     snapshot.proj = glm::mat4(1.f);
 
+    engine::GpuMeshPool mesh_pool;
     engine::StreamingTerrainSystem streaming;
-    streaming.build_snapshot(snapshot, glm::vec3(0.f), store);
+    streaming.build_snapshot(snapshot, glm::vec3(0.f), store, mesh_pool);
 
     REQUIRE(snapshot.opaque_sections.empty());
 }

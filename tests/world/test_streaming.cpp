@@ -16,6 +16,8 @@ engine::StreamingConfig test_streaming_config() {
     config.max_loaded_chunks = 512;
     config.horizontal_radius_chunks = 3;
     config.vertical_radius_chunks = 1;
+    // Unlimited per-frame budget so all in-disk chunks load in a single call.
+    config.max_chunks_load_per_update = 0;
     return config;
 }
 

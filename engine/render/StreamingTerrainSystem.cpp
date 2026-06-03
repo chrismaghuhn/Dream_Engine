@@ -52,6 +52,12 @@ void StreamingTerrainSystem::mark_uploads_complete(const std::vector<MeshUploadF
             section_state.opaque_draw_index_count =
                 clamp_index_count(slot, section_state.opaque_index_count);
             section_state.opaque_gpu_uploaded = section_state.opaque_draw_index_count > 0;
+            // New mesh is confirmed on GPU; release the stale slot held for seamless rendering.
+            if (section_state.stale_opaque_gpu_slot_id != 0) {
+                pending_slot_frees_.push_back(section_state.stale_opaque_gpu_slot_id);
+                section_state.stale_opaque_gpu_slot_id = 0;
+                section_state.stale_opaque_draw_index_count = 0;
+            }
             continue;
         }
 
@@ -65,12 +71,22 @@ void StreamingTerrainSystem::mark_uploads_complete(const std::vector<MeshUploadF
         section_state.water_draw_index_count =
             clamp_index_count(slot, section_state.water_index_count);
         section_state.water_gpu_uploaded = section_state.water_draw_index_count > 0;
+        if (section_state.stale_water_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.stale_water_gpu_slot_id);
+            section_state.stale_water_gpu_slot_id = 0;
+            section_state.stale_water_draw_index_count = 0;
+        }
     }
 }
 
 void StreamingTerrainSystem::release_section_gpu(SectionMeshState& section_state,
                                                  GpuDeferredFreeQueue& deferred_free,
                                                  const std::uint32_t submit_snapshot_slot) {
+    if (section_state.stale_opaque_gpu_slot_id != 0) {
+        deferred_free.enqueue_free(section_state.stale_opaque_gpu_slot_id, submit_snapshot_slot);
+        section_state.stale_opaque_gpu_slot_id = 0;
+        section_state.stale_opaque_draw_index_count = 0;
+    }
     if (section_state.opaque_gpu_slot_id != 0) {
         deferred_free.enqueue_free(section_state.opaque_gpu_slot_id, submit_snapshot_slot);
         section_state.opaque_gpu_slot_id = 0;
@@ -78,6 +94,11 @@ void StreamingTerrainSystem::release_section_gpu(SectionMeshState& section_state
         section_state.opaque_upload_queued = false;
         section_state.opaque_gpu_uploaded = false;
         section_state.opaque_draw_index_count = 0;
+    }
+    if (section_state.stale_water_gpu_slot_id != 0) {
+        deferred_free.enqueue_free(section_state.stale_water_gpu_slot_id, submit_snapshot_slot);
+        section_state.stale_water_gpu_slot_id = 0;
+        section_state.stale_water_draw_index_count = 0;
     }
     if (section_state.water_gpu_slot_id != 0) {
         deferred_free.enqueue_free(section_state.water_gpu_slot_id, submit_snapshot_slot);
@@ -147,7 +168,13 @@ void StreamingTerrainSystem::register_observers(flecs::world& world) {
             if (coord == nullptr) {
                 return;
             }
+            // Mark sections for remesh without clearing GPU draw state, so the
+            // old mesh stays visible until the new one is uploaded (no flash).
+            soft_invalidate_chunk_mesh(*coord);
             schedule_chunk_mesh(*coord);
+            // Remove the tag so subsequent block mutations in the same chunk
+            // trigger OnAdd again and re-enter this path.
+            entity.remove<ChunkDirty>();
         });
 }
 
@@ -164,6 +191,7 @@ void StreamingTerrainSystem::invalidate_chunk_mesh(const ChunkCoord coord) {
         ++section_state.mesh_schedule_serial;
         section_state.mesh_ready = false;
         section_state.mesh_job_pending = false;
+        section_state.needs_remesh = false;
         section_state.opaque_gpu_allocated = false;
         section_state.water_gpu_allocated = false;
         section_state.opaque_upload_queued = false;
@@ -173,14 +201,55 @@ void StreamingTerrainSystem::invalidate_chunk_mesh(const ChunkCoord coord) {
         section_state.opaque_draw_index_count = 0;
         section_state.water_draw_index_count = 0;
 
+        if (section_state.stale_opaque_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.stale_opaque_gpu_slot_id);
+            section_state.stale_opaque_gpu_slot_id = 0;
+            section_state.stale_opaque_draw_index_count = 0;
+        }
         if (section_state.opaque_gpu_slot_id != 0) {
             pending_slot_frees_.push_back(section_state.opaque_gpu_slot_id);
             section_state.opaque_gpu_slot_id = 0;
+        }
+        if (section_state.stale_water_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.stale_water_gpu_slot_id);
+            section_state.stale_water_gpu_slot_id = 0;
+            section_state.stale_water_draw_index_count = 0;
         }
         if (section_state.water_gpu_slot_id != 0) {
             pending_slot_frees_.push_back(section_state.water_gpu_slot_id);
             section_state.water_gpu_slot_id = 0;
         }
+    }
+}
+
+void StreamingTerrainSystem::soft_invalidate_chunk_mesh(const ChunkCoord coord) {
+    ChunkMeshState& chunk_state = chunk_meshes_[coord];
+    chunk_state.coord = coord;
+
+    for (SectionMeshState& section_state : chunk_state.sections) {
+        ++section_state.mesh_schedule_serial;
+        section_state.mesh_job_pending = false;
+        section_state.needs_remesh = true;
+        // Only supersede an existing stale slot when the active slot has already
+        // been confirmed on the GPU (opaque_draw_index_count > 0).  If the active
+        // slot's upload is still in flight, keeping the old confirmed stale is
+        // safer than discarding it — discarding it would leave the section with no
+        // fallback if the new mesh job also completes before the upload is confirmed.
+        if (section_state.stale_opaque_gpu_slot_id != 0 &&
+            section_state.opaque_draw_index_count > 0) {
+            pending_slot_frees_.push_back(section_state.stale_opaque_gpu_slot_id);
+            section_state.stale_opaque_gpu_slot_id = 0;
+            section_state.stale_opaque_draw_index_count = 0;
+        }
+        if (section_state.stale_water_gpu_slot_id != 0 &&
+            section_state.water_draw_index_count > 0) {
+            pending_slot_frees_.push_back(section_state.stale_water_gpu_slot_id);
+            section_state.stale_water_gpu_slot_id = 0;
+            section_state.stale_water_draw_index_count = 0;
+        }
+        // Intentionally leave mesh_ready, opaque_gpu_*, opaque_draw_index_count,
+        // and the active GPU slot ids intact so the old mesh keeps rendering until
+        // drain_mesh_completions replaces it with the freshly built one.
     }
 }
 
@@ -216,7 +285,9 @@ void StreamingTerrainSystem::on_chunk_loaded(const ChunkCoord coord) {
             continue;
         }
 
-        invalidate_chunk_mesh(neighbor);
+        // Soft invalidate so the neighbor's current mesh stays visible while
+        // the border-healed mesh is being built.
+        soft_invalidate_chunk_mesh(neighbor);
         schedule_chunk_mesh(neighbor);
     }
 }
@@ -261,12 +332,18 @@ void StreamingTerrainSystem::schedule_section_mesh(const ChunkCoord coord, const
     ChunkMeshState& chunk_state = chunk_meshes_[coord];
     chunk_state.coord = coord;
     SectionMeshState& section_state = chunk_state.sections[section_index];
-    if (section_state.mesh_job_pending || section_state.mesh_ready) {
+    if (section_state.mesh_job_pending) {
+        return;
+    }
+    // mesh_ready stays true during a soft invalidation (needs_remesh) so the
+    // old GPU geometry keeps rendering. Allow rescheduling in that case.
+    if (section_state.mesh_ready && !section_state.needs_remesh) {
         return;
     }
 
     section_state.section_index = section_index;
     section_state.mesh_job_pending = true;
+    section_state.needs_remesh = false;
     const std::uint32_t schedule_serial = section_state.mesh_schedule_serial;
 
     const glm::ivec3 section_coord = section_coord_from_index(section_index);
@@ -325,6 +402,62 @@ void StreamingTerrainSystem::drain_mesh_completions() {
         section_state.water_index_count = static_cast<std::uint32_t>(section_state.water_indices.size());
         section_state.mesh_ready = true;
         section_state.mesh_job_pending = false;
+        section_state.needs_remesh = false;
+        // Promote the active GPU slot to "stale" so build_snapshot can keep
+        // drawing the previous geometry while the new upload is in flight.
+        //
+        // IMPORTANT: only promote the active slot when its upload has been
+        // confirmed (opaque_draw_index_count > 0).  If the upload is still in
+        // flight (draw_count == 0) the active slot contains no drawable data yet.
+        // In that case, keep the existing stale slot (which is confirmed) and
+        // discard the unconfirmed active slot instead.  This prevents a one-frame
+        // gap when a block is broken while a seam-heal upload is still in flight.
+        if (section_state.opaque_gpu_slot_id != 0) {
+            const std::uint32_t draw_count = section_state.opaque_draw_index_count;
+            if (draw_count > 0) {
+                // Active slot has confirmed GPU data — use it as the new stale.
+                if (section_state.stale_opaque_gpu_slot_id != 0) {
+                    pending_slot_frees_.push_back(section_state.stale_opaque_gpu_slot_id);
+                }
+                section_state.stale_opaque_gpu_slot_id = section_state.opaque_gpu_slot_id;
+                section_state.stale_opaque_draw_index_count = draw_count;
+                section_state.opaque_gpu_slot_id = 0;
+            } else if (section_state.stale_opaque_gpu_slot_id != 0) {
+                // Active slot not yet confirmed but an old confirmed stale exists:
+                // keep the stale, free the unconfirmed active slot.
+                pending_slot_frees_.push_back(section_state.opaque_gpu_slot_id);
+                section_state.opaque_gpu_slot_id = 0;
+            } else {
+                // No confirmed data anywhere — free the active slot and accept
+                // that the section will be invisible until the new mesh uploads.
+                pending_slot_frees_.push_back(section_state.opaque_gpu_slot_id);
+                section_state.opaque_gpu_slot_id = 0;
+            }
+        } else {
+            // No active replacement slot exists yet. Keep any confirmed stale
+            // slot drawing until ensure_gpu_slots() allocates and uploads the
+            // new mesh; freeing it here creates a visible one-frame gap.
+        }
+        if (section_state.water_gpu_slot_id != 0) {
+            const std::uint32_t draw_count = section_state.water_draw_index_count;
+            if (draw_count > 0) {
+                if (section_state.stale_water_gpu_slot_id != 0) {
+                    pending_slot_frees_.push_back(section_state.stale_water_gpu_slot_id);
+                }
+                section_state.stale_water_gpu_slot_id = section_state.water_gpu_slot_id;
+                section_state.stale_water_draw_index_count = draw_count;
+                section_state.water_gpu_slot_id = 0;
+            } else if (section_state.stale_water_gpu_slot_id != 0) {
+                pending_slot_frees_.push_back(section_state.water_gpu_slot_id);
+                section_state.water_gpu_slot_id = 0;
+            } else {
+                pending_slot_frees_.push_back(section_state.water_gpu_slot_id);
+                section_state.water_gpu_slot_id = 0;
+            }
+        } else {
+            // Same fallback rule as opaque: keep confirmed stale water geometry
+            // visible until the replacement upload is confirmed.
+        }
         section_state.opaque_gpu_allocated = false;
         section_state.water_gpu_allocated = false;
         section_state.opaque_upload_queued = false;
@@ -333,14 +466,6 @@ void StreamingTerrainSystem::drain_mesh_completions() {
         section_state.water_gpu_uploaded = false;
         section_state.opaque_draw_index_count = 0;
         section_state.water_draw_index_count = 0;
-        if (section_state.opaque_gpu_slot_id != 0) {
-            pending_slot_frees_.push_back(section_state.opaque_gpu_slot_id);
-            section_state.opaque_gpu_slot_id = 0;
-        }
-        if (section_state.water_gpu_slot_id != 0) {
-            pending_slot_frees_.push_back(section_state.water_gpu_slot_id);
-            section_state.water_gpu_slot_id = 0;
-        }
     }
 }
 
@@ -702,7 +827,9 @@ void StreamingTerrainSystem::heal_seams_after_chunk_loads(const std::vector<Chun
         if (!chunk_within_mesh_radius(coord)) {
             continue;
         }
-        invalidate_chunk_mesh(coord);
+        // Soft invalidate so existing meshes keep rendering during seam heal.
+        soft_invalidate_chunk_mesh(coord);
+        schedule_chunk_mesh(coord);
     }
 
     process_mesh_backlog();
@@ -861,10 +988,11 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                 continue;
             }
 
+            // Prefer the uploaded new mesh; fall back to the stale slot while the
+            // new upload is in flight so the section never goes invisible.
             if (section_state.mesh_ready && section_state.opaque_gpu_allocated &&
                 section_state.opaque_gpu_uploaded && section_state.opaque_draw_index_count > 0 &&
                 mesh_pool.is_live(section_state.opaque_gpu_slot_id)) {
-                const std::uint32_t draw_indices = section_state.opaque_draw_index_count;
                 culled_opaque_sections_.push_back(DrawSection{
                     .coord = coord,
                     .section_index = section_index,
@@ -872,7 +1000,21 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                     .indirect_index = opaque_indirect_index++,
                     .vertex_buffer_id = section_state.opaque_gpu_slot_id,
                     .index_buffer_id = section_state.opaque_gpu_slot_id,
-                    .index_count = draw_indices,
+                    .index_count = section_state.opaque_draw_index_count,
+                    .cull_min = cull_min,
+                    .cull_max = cull_max,
+                });
+            } else if (section_state.stale_opaque_gpu_slot_id != 0 &&
+                       section_state.stale_opaque_draw_index_count > 0 &&
+                       mesh_pool.is_live(section_state.stale_opaque_gpu_slot_id)) {
+                culled_opaque_sections_.push_back(DrawSection{
+                    .coord = coord,
+                    .section_index = section_index,
+                    .model_translation = model_translation,
+                    .indirect_index = opaque_indirect_index++,
+                    .vertex_buffer_id = section_state.stale_opaque_gpu_slot_id,
+                    .index_buffer_id = section_state.stale_opaque_gpu_slot_id,
+                    .index_count = section_state.stale_opaque_draw_index_count,
                     .cull_min = cull_min,
                     .cull_max = cull_max,
                 });
@@ -886,7 +1028,6 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
             if (section_state.mesh_ready && section_state.water_gpu_allocated &&
                 section_state.water_gpu_uploaded && section_state.water_draw_index_count > 0 &&
                 mesh_pool.is_live(section_state.water_gpu_slot_id)) {
-                const std::uint32_t draw_indices = section_state.water_draw_index_count;
                 culled_water_sections_.push_back(DrawSection{
                     .coord = coord,
                     .section_index = section_index,
@@ -894,7 +1035,21 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                     .indirect_index = water_indirect_index++,
                     .vertex_buffer_id = section_state.water_gpu_slot_id,
                     .index_buffer_id = section_state.water_gpu_slot_id,
-                    .index_count = draw_indices,
+                    .index_count = section_state.water_draw_index_count,
+                    .cull_min = cull_min,
+                    .cull_max = cull_max,
+                });
+            } else if (section_state.stale_water_gpu_slot_id != 0 &&
+                       section_state.stale_water_draw_index_count > 0 &&
+                       mesh_pool.is_live(section_state.stale_water_gpu_slot_id)) {
+                culled_water_sections_.push_back(DrawSection{
+                    .coord = coord,
+                    .section_index = section_index,
+                    .model_translation = model_translation,
+                    .indirect_index = water_indirect_index++,
+                    .vertex_buffer_id = section_state.stale_water_gpu_slot_id,
+                    .index_buffer_id = section_state.stale_water_gpu_slot_id,
+                    .index_count = section_state.stale_water_draw_index_count,
                     .cull_min = cull_min,
                     .cull_max = cull_max,
                 });

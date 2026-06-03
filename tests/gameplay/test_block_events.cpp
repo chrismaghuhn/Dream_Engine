@@ -78,6 +78,61 @@ TEST_CASE("place emits exactly one EvtBlockPlaced") {
     REQUIRE(placed_count == 1);
 }
 
+TEST_CASE("break_block_at adds ChunkDirty to chunk entity") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(16);
+
+    const engine::WorldConfig world_config{};
+    const engine::ChunkCoord coord{0, 0, 0};
+    flecs::entity chunk_entity = engine::load_chunk(world, store, coord, world_config);
+    REQUIRE(chunk_entity.is_alive());
+
+    const engine::BlockPos target = engine::BlockPos::from_world_blocks(8, 8, 8);
+    const engine::BlockState stone = engine::make_block_state(engine::BLOCK_STONE, 0);
+    REQUIRE(store.write_block(target, stone));
+
+    REQUIRE_FALSE(chunk_entity.has<engine::ChunkDirty>());
+    REQUIRE(engine::break_block_at(world, store, target, 1));
+    REQUIRE(chunk_entity.has<engine::ChunkDirty>());
+}
+
+TEST_CASE("ChunkDirty removal allows re-trigger on subsequent block mutation") {
+    // Simulates the StreamingTerrainSystem observer that removes ChunkDirty after
+    // scheduling a remesh. Verifies the tag is added again on the next mutation.
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    int dirty_count = 0;
+    world.observer<engine::ChunkDirty>()
+        .event(flecs::OnAdd)
+        .each([&](flecs::entity entity, engine::ChunkDirty) {
+            ++dirty_count;
+            entity.remove<engine::ChunkDirty>();
+        });
+
+    engine::ChunkStore store;
+    store.init(16);
+
+    const engine::WorldConfig world_config{};
+    const engine::ChunkCoord coord{0, 0, 0};
+    REQUIRE(engine::load_chunk(world, store, coord, world_config).is_alive());
+
+    const engine::BlockPos pos1 = engine::BlockPos::from_world_blocks(4, 4, 4);
+    const engine::BlockPos pos2 = engine::BlockPos::from_world_blocks(5, 4, 4);
+
+    REQUIRE(store.write_block(pos1, engine::make_block_state(engine::BLOCK_STONE, 0)));
+    REQUIRE(store.write_block(pos2, engine::make_block_state(engine::BLOCK_STONE, 0)));
+
+    REQUIRE(engine::break_block_at(world, store, pos1, 1));
+    REQUIRE(dirty_count == 1);
+
+    REQUIRE(engine::break_block_at(world, store, pos2, 2));
+    REQUIRE(dirty_count == 2);
+}
+
 TEST_CASE("stale BlockMutation is rejected") {
     flecs::world world;
     world.import<engine::WorldModule>();

@@ -2,6 +2,7 @@
 
 #include "engine/render/GpuDeferredFreeQueue.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -29,6 +30,15 @@ struct GpuMeshSlot {
     bool live = false;
 };
 
+[[nodiscard]] inline std::uint32_t clamp_index_count(const GpuMeshSlot* slot, std::uint32_t index_count) {
+    if (slot == nullptr || slot->index_capacity < sizeof(std::uint32_t)) {
+        return 0;
+    }
+    const std::uint32_t capacity_indices =
+        static_cast<std::uint32_t>(slot->index_capacity / sizeof(std::uint32_t));
+    return std::min(index_count, capacity_indices);
+}
+
 class GpuMeshPool {
 public:
     GpuMeshPool() = default;
@@ -43,20 +53,24 @@ public:
     [[nodiscard]] std::uint32_t regrow(std::uint32_t old_slot_id,
                                        std::size_t vertex_bytes,
                                        std::size_t index_bytes,
-                                       std::uint64_t last_used_frame);
+                                       std::uint32_t last_submit_snapshot_slot);
     void release_immediate(std::uint32_t slot_id);
 
     [[nodiscard]] const GpuMeshSlot* slot(std::uint32_t slot_id) const;
     [[nodiscard]] bool is_live(std::uint32_t slot_id) const;
     [[nodiscard]] std::size_t bytes_used() const { return bytes_used_; }
     [[nodiscard]] std::size_t bytes_budget() const { return bytes_budget_; }
+    [[nodiscard]] std::size_t live_slot_count() const;
     void set_bytes_budget(std::size_t bytes_budget) { bytes_budget_ = bytes_budget; }
+
+    static constexpr std::size_t kMaxLiveSlots = 1024;
 
 private:
     [[nodiscard]] GpuMeshSlot* find_slot(std::uint32_t slot_id);
     [[nodiscard]] const GpuMeshSlot* find_slot(std::uint32_t slot_id) const;
     [[nodiscard]] std::uint32_t allocate_sized(std::size_t vertex_bytes, std::size_t index_bytes);
     [[nodiscard]] std::uint32_t allocate_bucket(MeshBucket bucket);
+    [[nodiscard]] bool create_bucket_gpu_resources(GpuMeshSlot& slot, MeshBucket bucket);
     void destroy_slot_resources(GpuMeshSlot& slot);
     void return_slot_to_freelist(GpuMeshSlot& slot);
 

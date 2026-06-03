@@ -51,12 +51,16 @@ void load_spawn_neighborhood(
     }
 }
 
-void update_streaming(
+int update_streaming(
     ChunkStore& store,
     flecs::world& ecs,
     const StreamingConfig& streaming,
     const WorldConfig& world_config,
-    ChunkCoord player_chunk) {
+    ChunkCoord player_chunk,
+    std::vector<ChunkCoord>* out_loaded_coords) {
+    if (out_loaded_coords != nullptr) {
+        out_loaded_coords->clear();
+    }
     const int r = streaming.horizontal_radius_chunks;
     const int cy_min =
         std::max(world_config.chunk_height_min, player_chunk.y - streaming.vertical_radius_chunks);
@@ -76,6 +80,9 @@ void update_streaming(
                 }
                 if (store.try_get(coord) == nullptr) {
                     load_chunk(ecs, store, coord, world_config);
+                    if (out_loaded_coords != nullptr) {
+                        out_loaded_coords->push_back(coord);
+                    }
                     ++loaded_this_update;
                     if (load_budget > 0 && loaded_this_update >= load_budget) {
                         load_budget_exhausted = true;
@@ -95,15 +102,8 @@ void update_streaming(
     for (const ChunkCoord coord : to_unload) {
         unload_chunk(ecs, store, coord);
     }
-}
 
-void update_streaming(
-    ChunkStore& store,
-    flecs::world& ecs,
-    const StreamingConfig& streaming,
-    const WorldConfig& world_config,
-    const WorldPosition& player) {
-    update_streaming(store, ecs, streaming, world_config, player.chunk);
+    return loaded_this_update;
 }
 
 } // namespace engine

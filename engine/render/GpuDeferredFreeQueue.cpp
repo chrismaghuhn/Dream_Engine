@@ -6,8 +6,8 @@
 
 namespace engine {
 
-GpuDeferredFreeQueue::GpuDeferredFreeQueue(std::uint32_t frames_in_flight, FreeCallback on_free)
-    : frames_in_flight_(frames_in_flight > 0 ? frames_in_flight : 1)
+GpuDeferredFreeQueue::GpuDeferredFreeQueue(std::uint32_t fence_slot_count, FreeCallback on_free)
+    : fence_slot_count_(fence_slot_count > 0 ? fence_slot_count : 1)
     , on_free_(std::move(on_free)) {}
 
 void GpuDeferredFreeQueue::set_fences(VkDevice device, const VkFence* frame_submit_fences) {
@@ -26,7 +26,8 @@ void GpuDeferredFreeQueue::set_free_callback(FreeCallback on_free) {
     on_free_ = std::move(on_free);
 }
 
-void GpuDeferredFreeQueue::enqueue_free(std::uint32_t slot_id, std::uint64_t last_used_frame) {
+void GpuDeferredFreeQueue::enqueue_free(std::uint32_t slot_id,
+                                        const std::uint32_t last_submit_snapshot_slot) {
     if (slot_id == 0) {
         return;
     }
@@ -37,11 +38,15 @@ void GpuDeferredFreeQueue::enqueue_free(std::uint32_t slot_id, std::uint64_t las
         }
     }
 
-    pending_.push_back(PendingGpuFree{slot_id, last_used_frame});
+    pending_.push_back(PendingGpuFree{slot_id, last_submit_snapshot_slot});
 }
 
-bool GpuDeferredFreeQueue::is_fence_signaled(std::uint64_t last_used_frame) const {
-    const std::uint32_t ring = static_cast<std::uint32_t>(last_used_frame % frames_in_flight_);
+bool GpuDeferredFreeQueue::is_fence_signaled(const std::uint32_t last_submit_snapshot_slot) const {
+    if (fence_slot_count_ == 0) {
+        return false;
+    }
+
+    const std::uint32_t ring = last_submit_snapshot_slot % fence_slot_count_;
 
     if (fence_checker_) {
         return fence_checker_(ring);
@@ -56,7 +61,7 @@ bool GpuDeferredFreeQueue::is_fence_signaled(std::uint64_t last_used_frame) cons
 
 void GpuDeferredFreeQueue::process_completed() {
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const PendingGpuFree& entry) {
-                       if (!is_fence_signaled(entry.last_used_frame)) {
+                       if (!is_fence_signaled(entry.last_submit_snapshot_slot)) {
                            return false;
                        }
 
@@ -66,6 +71,15 @@ void GpuDeferredFreeQueue::process_completed() {
                        return true;
                    }),
                    pending_.end());
+}
+
+void GpuDeferredFreeQueue::flush_pending_immediate() {
+    for (const PendingGpuFree& entry : pending_) {
+        if (on_free_) {
+            on_free_(entry.slot_id);
+        }
+    }
+    pending_.clear();
 }
 
 } // namespace engine

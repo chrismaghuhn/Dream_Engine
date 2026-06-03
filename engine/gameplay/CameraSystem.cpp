@@ -1,5 +1,7 @@
 #include "engine/gameplay/CameraSystem.hpp"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 
 namespace engine {
@@ -62,7 +64,10 @@ void CameraSystem::build_render_snapshot(
 
     snapshot.frame_index = frame_index;
     snapshot.render_origin = render_origin;
-    snapshot.view = camera.view_matrix();
+
+    const glm::vec3 camera_relative = camera.position - render_origin;
+    snapshot.view =
+        glm::lookAt(camera_relative, camera_relative + camera.forward(), glm::vec3{0.f, 1.f, 0.f});
     snapshot.proj = camera.projection_matrix(aspect_ratio);
 }
 

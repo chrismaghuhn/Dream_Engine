@@ -1,6 +1,7 @@
 #include "engine/render/WaterPass.hpp"
 
 #include "engine/render/HostMemory.hpp"
+#include "engine/render/Renderer.hpp"
 #include "engine/render/VkCheck.hpp"
 #include "engine/world/SectionIndexing.hpp"
 
@@ -236,6 +237,7 @@ void WaterPass::shutdown() {
 
 void WaterPass::write_indirect_commands(const std::uint64_t frame_index,
                                         const WorldRenderSnapshot& snapshot,
+                                        const GpuMeshPool& mesh_pool,
                                         const std::size_t opaque_draw_count) {
     if (per_frame_writes_ == nullptr || snapshot.water_sections.empty()) {
         return;
@@ -245,9 +247,16 @@ void WaterPass::write_indirect_commands(const std::uint64_t frame_index,
     std::vector<VkDrawIndexedIndirectCommand> commands;
     commands.reserve(snapshot.water_sections.size());
 
-    for (const DrawSection& section : snapshot.water_sections) {
+    const std::size_t max_opaque_draws = std::min(opaque_draw_count, Renderer::kMaxIndirectDraws);
+    const std::size_t max_water_draws = Renderer::kMaxWaterIndirectDraws;
+    const std::size_t water_draw_count = std::min(snapshot.water_sections.size(), max_water_draws);
+    commands.reserve(water_draw_count);
+    for (std::size_t i = 0; i < water_draw_count; ++i) {
+        const DrawSection& section = snapshot.water_sections[i];
+        const GpuMeshSlot* mesh_slot = mesh_pool.slot(section.vertex_buffer_id);
+        const std::uint32_t index_count = clamp_index_count(mesh_slot, section.index_count);
         commands.push_back(VkDrawIndexedIndirectCommand{
-            .indexCount = section.index_count,
+            .indexCount = index_count,
             .instanceCount = 1,
             .firstIndex = 0,
             .vertexOffset = 0,
@@ -257,14 +266,20 @@ void WaterPass::write_indirect_commands(const std::uint64_t frame_index,
 
     const std::size_t indirect_base = per_frame_writes_->aligned_dynamic_offset(slot.ubo_size);
     const std::size_t water_indirect_offset =
-        indirect_base + opaque_draw_count * sizeof(VkDrawIndexedIndirectCommand);
+        indirect_base + max_opaque_draws * sizeof(VkDrawIndexedIndirectCommand);
+    const std::size_t write_bytes = commands.size() * sizeof(VkDrawIndexedIndirectCommand);
+    const std::size_t indirect_limit =
+        indirect_base + static_cast<std::size_t>(slot.indirect_size);
+    if (water_indirect_offset + write_bytes > indirect_limit) {
+        return;
+    }
 
     void* mapped = nullptr;
     VK_CHECK(vkMapMemory(context_->device(), slot.memory, 0, slot.memory_size, 0, &mapped));
     host_write(context_->device(),
                mapped,
                water_indirect_offset,
-               commands.size() * sizeof(VkDrawIndexedIndirectCommand),
+               write_bytes,
                commands.data(),
                slot.memory,
                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -285,8 +300,9 @@ void WaterPass::record(VkCommandBuffer command_buffer,
 
     const PerFrameGpuWrites& slot = per_frame_writes_->slot(frame_index);
     const std::size_t indirect_base = per_frame_writes_->aligned_dynamic_offset(slot.ubo_size);
+    const std::size_t max_opaque_draws = std::min(opaque_draw_count, Renderer::kMaxIndirectDraws);
     const std::size_t water_indirect_offset =
-        indirect_base + opaque_draw_count * sizeof(VkDrawIndexedIndirectCommand);
+        indirect_base + max_opaque_draws * sizeof(VkDrawIndexedIndirectCommand);
 
     VkViewport viewport{
         .width = static_cast<float>(extent.width),
@@ -310,10 +326,19 @@ void WaterPass::record(VkCommandBuffer command_buffer,
     vkCmdSetViewport(command_buffer, 0, 1, &viewport);
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-    for (std::size_t draw_index = 0; draw_index < snapshot.water_sections.size(); ++draw_index) {
+    const std::size_t max_water_draws = Renderer::kMaxWaterIndirectDraws;
+    const std::size_t draw_count = std::min(snapshot.water_sections.size(), max_water_draws);
+    const std::size_t indirect_limit =
+        indirect_base + static_cast<std::size_t>(slot.indirect_size);
+    for (std::size_t draw_index = 0; draw_index < draw_count; ++draw_index) {
         const DrawSection& section = snapshot.water_sections[draw_index];
         const GpuMeshSlot* mesh_slot = mesh_pool.slot(section.vertex_buffer_id);
-        if (mesh_slot == nullptr) {
+        if (mesh_slot == nullptr || mesh_slot->vertex_buffer == VK_NULL_HANDLE ||
+            mesh_slot->index_buffer == VK_NULL_HANDLE) {
+            continue;
+        }
+
+        if (clamp_index_count(mesh_slot, section.index_count) == 0) {
             continue;
         }
 
@@ -333,6 +358,9 @@ void WaterPass::record(VkCommandBuffer command_buffer,
 
         const VkDeviceSize indirect_byte_offset = static_cast<VkDeviceSize>(
             water_indirect_offset + draw_index * sizeof(VkDrawIndexedIndirectCommand));
+        if (indirect_byte_offset + sizeof(VkDrawIndexedIndirectCommand) > indirect_limit) {
+            break;
+        }
         vkCmdDrawIndexedIndirect(
             command_buffer, slot.indirect_draw_buffer, indirect_byte_offset, 1, sizeof(VkDrawIndexedIndirectCommand));
     }

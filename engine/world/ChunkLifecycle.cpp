@@ -4,6 +4,8 @@
 #include "engine/render/GpuDeferredFreeQueue.hpp"
 #include "engine/world/BlockLight.hpp"
 
+#include <array>
+
 #include <spdlog/spdlog.h>
 
 namespace engine {
@@ -22,11 +24,11 @@ void enqueue_chunk_mesh_slots(flecs::entity entity) {
         return;
     }
 
-    const std::uint64_t frame_index =
-        g_gpu_services->frame_index ? g_gpu_services->frame_index() : 0;
+    const std::uint32_t snapshot_slot =
+        g_gpu_services->submit_snapshot_slot ? g_gpu_services->submit_snapshot_slot() : 0;
     for (const std::uint32_t slot_id : slots->section_slot_ids) {
         if (slot_id != 0) {
-            g_gpu_services->deferred_free->enqueue_free(slot_id, frame_index);
+            g_gpu_services->deferred_free->enqueue_free(slot_id, snapshot_slot);
         }
     }
 }
@@ -43,6 +45,24 @@ void refresh_chunk_section_borders(ChunkStore& store, ChunkCoord coord) {
             for (int sz = 0; sz < 2; ++sz) {
                 refresh_section_border_cache(store, coord, glm::ivec3{sx, sy, sz});
             }
+        }
+    }
+}
+
+void refresh_loaded_chunk_neighbors(ChunkStore& store, ChunkCoord coord) {
+    static constexpr std::array<ChunkCoord, 6> kNeighborOffsets{
+        ChunkCoord{1, 0, 0},
+        ChunkCoord{-1, 0, 0},
+        ChunkCoord{0, 1, 0},
+        ChunkCoord{0, -1, 0},
+        ChunkCoord{0, 0, 1},
+        ChunkCoord{0, 0, -1},
+    };
+
+    for (const ChunkCoord& offset : kNeighborOffsets) {
+        const ChunkCoord neighbor = coord + offset;
+        if (store.try_get(neighbor) != nullptr && !store.is_pending_unload(neighbor)) {
+            refresh_chunk_section_borders(store, neighbor);
         }
     }
 }
@@ -99,6 +119,7 @@ flecs::entity load_chunk(
     TerrainGraph terrain(world_config.world_seed, world_config.sea_level);
     terrain.fill_chunk(*chunk);
     refresh_chunk_section_borders(store, coord);
+    refresh_loaded_chunk_neighbors(store, coord);
 
     const ChunkSlotRef slot_ref = store.slot_ref_for(coord);
     flecs::entity entity = world.entity()

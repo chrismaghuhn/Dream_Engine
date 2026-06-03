@@ -28,6 +28,7 @@ void DebrisSystem::init(flecs::world& world, PhysicsSystem& physics, const Debri
     max_active_ = config.max_active_debris;
     despawn_radius_ = config.despawn_radius;
     active_count_ = std::make_shared<std::atomic<int>>(0);
+    debris_query_ = world.query<DebrisTag, DebrisTransform>();
 
     world.component<DebrisTag>();
     world.component<DebrisTransform>();
@@ -80,11 +81,9 @@ void DebrisSystem::tick(flecs::world& world, const glm::vec3& player_position) {
     }
 
     const float radius_sq = despawn_radius_ * despawn_radius_;
-    const flecs::query<DebrisTag, DebrisTransform> debris_query =
-        world.query<DebrisTag, DebrisTransform>();
 
     std::vector<flecs::entity> to_despawn{};
-    debris_query.each([&](flecs::entity entity, DebrisTag, DebrisTransform& transform) {
+    debris_query_.each([&](flecs::entity entity, DebrisTag, DebrisTransform& transform) {
         const glm::vec3 delta = transform.position - player_position;
         if (glm::dot(delta, delta) <= radius_sq) {
             return;
