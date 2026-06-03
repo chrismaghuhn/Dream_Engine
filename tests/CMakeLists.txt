@@ -60,6 +60,7 @@ add_executable(character_tests
     character/test_gltf_ingest.cpp
     character/test_skeleton_compat.cpp
     character/test_character_catalog.cpp
+    character/test_animation_controller.cpp
     character/test_attack_data.cpp
     character/test_input_buffer.cpp
     character/test_combo_fsm.cpp
