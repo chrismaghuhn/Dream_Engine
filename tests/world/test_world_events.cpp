@@ -10,4 +10,6 @@ TEST_CASE("WorldModule registers world event types") {
     REQUIRE(world.component<engine::EvtChunkDirty>().id() != 0);
     REQUIRE(world.component<engine::EvtOriginShift>().id() != 0);
     REQUIRE(world.component<engine::ChunkDirty>().id() != 0);
+    REQUIRE(world.component<engine::ChunkSlotRef>().id() != 0);
+    REQUIRE(world.component<engine::ChunkCoord>().id() != 0);
 }

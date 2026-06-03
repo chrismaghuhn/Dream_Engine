@@ -6,6 +6,7 @@ set(ENGINE_CORE_SOURCES
     world/WorldModule.cpp
     world/OriginRebase.cpp
     world/ChunkStore.cpp
+    world/ChunkLifecycle.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     Engine.cpp

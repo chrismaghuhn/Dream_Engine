@@ -5,6 +5,7 @@
 #include "engine/platform/Input.hpp"
 #include "engine/platform/Platform.hpp"
 #include "engine/render/Renderer.hpp"
+#include "engine/world/ChunkStore.hpp"
 #include "engine/world/OriginRebase.hpp"
 
 #include <flecs.h>
@@ -29,6 +30,7 @@ public:
     [[nodiscard]] flecs::world& world() { return world_; }
     [[nodiscard]] Platform& platform() { return platform_; }
     [[nodiscard]] Renderer& renderer() { return renderer_; }
+    [[nodiscard]] ChunkStore& chunk_store() { return chunk_store_; }
 
 private:
     void render_build(std::uint32_t snapshot_slot);
@@ -39,6 +41,7 @@ private:
     Input input_{};
     Renderer renderer_{};
     OriginRebase origin_rebase_{};
+    ChunkStore chunk_store_{};
     flecs::world world_{};
     flecs::entity player_fly_{};
     std::uint64_t frame_index_ = 0;

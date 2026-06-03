@@ -2,6 +2,7 @@
 
 #include "engine/world/BlockPos.hpp"
 #include "engine/world/Chunk.hpp"
+#include "engine/world/WorldEvents.hpp"
 
 #include <cstdint>
 #include <unordered_map>
@@ -18,6 +19,7 @@ struct ChunkSlot {
     Chunk chunk{};
     uint32_t generation = 1;
     bool occupied = false;
+    bool pending_unload = false;
 };
 
 struct ChunkCoordHash {
@@ -37,6 +39,18 @@ public:
     [[nodiscard]] Chunk* allocate(ChunkCoord coord);
     void free(ChunkCoord coord);
 
+    [[nodiscard]] ChunkSlotRef slot_ref_for(ChunkCoord coord) const;
+    [[nodiscard]] bool validate_slot_ref(ChunkSlotRef ref) const;
+    [[nodiscard]] Chunk* try_get_via_ref(ChunkSlotRef ref);
+    [[nodiscard]] const Chunk* try_get_via_ref(ChunkSlotRef ref) const;
+
+    [[nodiscard]] bool is_pending_unload(ChunkCoord coord) const;
+    void set_pending_unload(ChunkCoord coord, bool value);
+
+    [[nodiscard]] uint64_t entity_for(ChunkCoord coord) const;
+    void set_entity_for(ChunkCoord coord, uint64_t entity_id);
+    void clear_entity_for(ChunkCoord coord);
+
     [[nodiscard]] BlockState read_block(BlockPos pos) const;
     [[nodiscard]] bool write_block(BlockPos pos, BlockState state);
 
@@ -44,6 +58,7 @@ private:
     std::vector<ChunkSlot> slots_{};
     std::vector<uint32_t> free_list_{};
     std::unordered_map<ChunkCoord, uint32_t, ChunkCoordHash> coord_to_slot_{};
+    std::unordered_map<ChunkCoord, uint64_t, ChunkCoordHash> coord_to_entity_{};
 };
 
 bool occupancy_at(int wx, int wy, int wz, ChunkStore& store,

@@ -11,6 +11,7 @@ add_executable(engine_tests
     world/test_origin_rebase.cpp
     world/test_palette.cpp
     world/test_occupancy.cpp
+    world/test_chunk_lifecycle.cpp
     render/test_snapshot_ring.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine_core Catch2::Catch2WithMain)

@@ -44,6 +44,12 @@ struct EvtBlockPlaced {
     BlockState new_state{};
 };
 
+// Chunk entity components (§7).
+struct ChunkSlotRef {
+    uint32_t slot_id = 0;
+    uint32_t generation = 0;
+};
+
 // Component tag — OnAdd observer enqueues remesh / collision / light (§6).
 struct ChunkDirty {};
 

@@ -1,5 +1,6 @@
 #include "engine/world/WorldModule.hpp"
 
+#include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/WorldEvents.hpp"
 
 #include <spdlog/spdlog.h>
@@ -16,15 +17,13 @@ WorldModule::WorldModule(flecs::world& ecs) {
     ECS_EVENT(ecs, EvtChunkMeshReady);
     ECS_EVENT(ecs, EvtBlockBroken);
     ECS_EVENT(ecs, EvtBlockPlaced);
+    ecs.component<ChunkCoord>();
+    ecs.component<ChunkSlotRef>();
     ecs.component<ChunkDirty>();
     ecs.component<WorldRoot>();
     ecs.entity("WorldRoot").add<WorldRoot>();
 
-    ecs.observer<ChunkDirty>()
-        .event(flecs::OnAdd)
-        .each([](flecs::entity e, ChunkDirty) {
-            SPDLOG_DEBUG("ChunkDirty added entity={}", e.id());
-        });
+    register_chunk_lifecycle(ecs);
 
     ecs.observer<EvtBlockBroken>()
         .event<EvtBlockBroken>()

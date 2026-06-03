@@ -52,10 +52,75 @@ void ChunkStore::free(ChunkCoord coord) {
     const uint32_t slot_id = it->second;
     ChunkSlot& slot = slots_[slot_id];
     slot.occupied = false;
+    slot.pending_unload = false;
     ++slot.generation;
     slot.chunk = Chunk{};
     coord_to_slot_.erase(it);
+    coord_to_entity_.erase(coord);
     free_list_.push_back(slot_id);
+}
+
+ChunkSlotRef ChunkStore::slot_ref_for(ChunkCoord coord) const {
+    const auto it = coord_to_slot_.find(coord);
+    if (it == coord_to_slot_.end()) {
+        return {};
+    }
+    const ChunkSlot& slot = slots_[it->second];
+    return { it->second, slot.generation };
+}
+
+bool ChunkStore::validate_slot_ref(ChunkSlotRef ref) const {
+    if (ref.slot_id >= slots_.size()) {
+        return false;
+    }
+    const ChunkSlot& slot = slots_[ref.slot_id];
+    if (!slot.occupied) {
+        return false;
+    }
+    return slot.generation == ref.generation;
+}
+
+Chunk* ChunkStore::try_get_via_ref(ChunkSlotRef ref) {
+    return const_cast<Chunk*>(static_cast<const ChunkStore*>(this)->try_get_via_ref(ref));
+}
+
+const Chunk* ChunkStore::try_get_via_ref(ChunkSlotRef ref) const {
+    if (!validate_slot_ref(ref)) {
+        return nullptr;
+    }
+    return &slots_[ref.slot_id].chunk;
+}
+
+bool ChunkStore::is_pending_unload(ChunkCoord coord) const {
+    const auto it = coord_to_slot_.find(coord);
+    if (it == coord_to_slot_.end()) {
+        return false;
+    }
+    return slots_[it->second].pending_unload;
+}
+
+void ChunkStore::set_pending_unload(ChunkCoord coord, bool value) {
+    const auto it = coord_to_slot_.find(coord);
+    if (it == coord_to_slot_.end()) {
+        return;
+    }
+    slots_[it->second].pending_unload = value;
+}
+
+uint64_t ChunkStore::entity_for(ChunkCoord coord) const {
+    const auto it = coord_to_entity_.find(coord);
+    if (it == coord_to_entity_.end()) {
+        return 0;
+    }
+    return it->second;
+}
+
+void ChunkStore::set_entity_for(ChunkCoord coord, uint64_t entity_id) {
+    coord_to_entity_[coord] = entity_id;
+}
+
+void ChunkStore::clear_entity_for(ChunkCoord coord) {
+    coord_to_entity_.erase(coord);
 }
 
 BlockState ChunkStore::read_block(BlockPos pos) const {
