@@ -17,6 +17,8 @@ WorldModule::WorldModule(flecs::world& ecs) {
     ECS_EVENT(ecs, EvtBlockBroken);
     ECS_EVENT(ecs, EvtBlockPlaced);
     ecs.component<ChunkDirty>();
+    ecs.component<WorldRoot>();
+    ecs.entity("WorldRoot").add<WorldRoot>();
 
     ecs.observer<ChunkDirty>()
         .event(flecs::OnAdd)

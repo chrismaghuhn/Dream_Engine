@@ -29,6 +29,16 @@ bool read_bool_or_default(const toml::table& table, const char* key, bool defaul
     return default_value;
 }
 
+float read_float_or_default(const toml::table& table, const char* key, float default_value) {
+    if (const auto value = table[key].value<float>()) {
+        return *value;
+    }
+    if (const auto value = table[key].value<double>()) {
+        return static_cast<float>(*value);
+    }
+    return default_value;
+}
+
 RenderPreset render_preset_from_gpu(const GpuCaps& gpu) {
     constexpr size_t k8GiB = 8ULL * 1024 * 1024 * 1024;
     constexpr size_t k4GiB = 4ULL * 1024 * 1024 * 1024;
@@ -99,6 +109,7 @@ void EngineConfig::load_toml(const std::string& path) {
         world_.chunk_height_max = read_int_or_default(*world, "chunk_height_max", world_.chunk_height_max);
         world_.finite_bounds = read_bool_or_default(*world, "finite_bounds", world_.finite_bounds);
         world_.sea_level = read_int_or_default(*world, "sea_level", world_.sea_level);
+        world_.rebase_radius = read_float_or_default(*world, "rebase_radius", world_.rebase_radius);
     }
 }
 

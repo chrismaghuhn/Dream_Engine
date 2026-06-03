@@ -47,6 +47,9 @@ struct EvtBlockPlaced {
 // Component tag — OnAdd observer enqueues remesh / collision / light (§6).
 struct ChunkDirty {};
 
+// Singleton entity tag for world-scoped events (origin rebase, etc.).
+struct WorldRoot {};
+
 } // namespace engine
 
 // Register event payload types with Flecs (events use the component registry).

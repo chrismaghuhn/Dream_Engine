@@ -4,6 +4,7 @@ set(ENGINE_CORE_SOURCES
     core/EngineConfig.cpp
     core/JobSystem.cpp
     world/WorldModule.cpp
+    world/OriginRebase.cpp
     Engine.cpp
 )
 
