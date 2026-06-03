@@ -61,6 +61,7 @@ add_executable(character_tests
     character/test_skeleton_compat.cpp
     character/test_character_catalog.cpp
     character/test_attack_data.cpp
+    character/test_input_buffer.cpp
     character/test_combo_fsm.cpp
     character/test_hit_window.cpp
     character/test_hit_overlap.cpp

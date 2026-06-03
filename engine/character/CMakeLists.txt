@@ -4,6 +4,7 @@ set(ENGINE_CHARACTER_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/engine/character/core/SkeletonValidator.cpp
     ${CMAKE_SOURCE_DIR}/engine/character/core/CookedCharacterCache.cpp
     ${CMAKE_SOURCE_DIR}/engine/character/core/AnimationController.cpp
+    ${CMAKE_SOURCE_DIR}/engine/character/core/InputBuffer.cpp
     ${CMAKE_SOURCE_DIR}/engine/character/core/AttackData.cpp
     ${CMAKE_SOURCE_DIR}/engine/character/core/CombatController.cpp
     ${CMAKE_SOURCE_DIR}/engine/character/core/HitDetection.cpp
