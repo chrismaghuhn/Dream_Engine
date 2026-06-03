@@ -1,5 +1,7 @@
 #include "engine/world/ChunkLifecycle.hpp"
 
+#include "engine/procgen/HeightmapWorldgen.hpp"
+
 #include <spdlog/spdlog.h>
 
 namespace engine {
@@ -41,7 +43,8 @@ void register_chunk_lifecycle(flecs::world& world) {
         });
 }
 
-flecs::entity load_chunk(flecs::world& world, ChunkStore& store, ChunkCoord coord) {
+flecs::entity load_chunk(
+    flecs::world& world, ChunkStore& store, ChunkCoord coord, const WorldConfig& world_config) {
     const uint64_t existing = store.entity_for(coord);
     if (existing != 0 && store.try_get(coord) != nullptr) {
         return world.entity(existing);
@@ -51,6 +54,9 @@ flecs::entity load_chunk(flecs::world& world, ChunkStore& store, ChunkCoord coor
     if (!chunk) {
         return flecs::entity{};
     }
+
+    HeightmapWorldgen worldgen(world_config.world_seed, world_config.sea_level);
+    worldgen.fill_chunk(*chunk);
 
     const ChunkSlotRef slot_ref = store.slot_ref_for(coord);
     flecs::entity entity = world.entity()

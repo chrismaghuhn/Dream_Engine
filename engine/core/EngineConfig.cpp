@@ -127,6 +127,9 @@ void EngineConfig::load_toml(const std::string& path) {
         world_.chunk_height_max = read_int_or_default(*world, "chunk_height_max", world_.chunk_height_max);
         world_.finite_bounds = read_bool_or_default(*world, "finite_bounds", world_.finite_bounds);
         world_.sea_level = read_int_or_default(*world, "sea_level", world_.sea_level);
+        if (const auto seed = (*world)["world_seed"].value<int64_t>()) {
+            world_.world_seed = static_cast<uint64_t>(*seed);
+        }
         world_.rebase_radius = read_float_or_default(*world, "rebase_radius", world_.rebase_radius);
     }
 

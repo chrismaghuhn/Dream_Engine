@@ -12,4 +12,5 @@ chunk_height_min = -4
 chunk_height_max = 8
 finite_bounds = false
 sea_level = 64
+world_seed = 42
 rebase_radius = 512.0

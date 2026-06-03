@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/world/ChunkStore.hpp"
+#include "engine/world/WorldConfig.hpp"
 #include "engine/world/WorldEvents.hpp"
 
 #include <flecs.h>
@@ -9,7 +10,8 @@ namespace engine {
 
 void register_chunk_lifecycle(flecs::world& world);
 
-[[nodiscard]] flecs::entity load_chunk(flecs::world& world, ChunkStore& store, ChunkCoord coord);
+[[nodiscard]] flecs::entity load_chunk(
+    flecs::world& world, ChunkStore& store, ChunkCoord coord, const WorldConfig& world_config);
 void unload_chunk(flecs::world& world, ChunkStore& store, ChunkCoord coord);
 
 } // namespace engine

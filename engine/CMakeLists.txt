@@ -7,8 +7,7 @@ set(ENGINE_CORE_SOURCES
     world/OriginRebase.cpp
     world/ChunkStore.cpp
     world/ChunkLifecycle.cpp
-    world/StreamingConfig.cpp
-    world/StreamingSystem.cpp
+    procgen/HeightmapWorldgen.cpp
     world/StreamingConfig.cpp
     world/StreamingSystem.cpp
     gameplay/Camera.cpp

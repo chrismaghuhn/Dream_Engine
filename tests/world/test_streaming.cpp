@@ -57,7 +57,7 @@ TEST_CASE("chunk outside euclidean disk unloads") {
     const engine::WorldConfig world_config = test_world_config();
     const engine::ChunkCoord far_chunk{10, 0, 0};
 
-    engine::load_chunk(world, store, far_chunk);
+    engine::load_chunk(world, store, far_chunk, world_config);
     REQUIRE(store.try_get(far_chunk) != nullptr);
 
     const engine::ChunkCoord player{0, 0, 0};

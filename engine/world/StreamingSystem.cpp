@@ -46,7 +46,7 @@ void update_streaming(
                     continue;
                 }
                 if (store.try_get(coord) == nullptr) {
-                    load_chunk(ecs, store, coord);
+                    load_chunk(ecs, store, coord, world_config);
                 }
             }
         }
