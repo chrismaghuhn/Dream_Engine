@@ -90,6 +90,30 @@ TEST_CASE("terrain graph assigns biomes") {
     REQUIRE(static_cast<int>(distant) >= 0);
 }
 
+TEST_CASE("greedy mesh keeps vertices within section bounds") {
+    // Regression guard for the emit_quad width/height swap that produced
+    // out-of-section vertices (Y up to 29 in a 16-tall section) rendered as
+    // tall spikes. Every emitted vertex coordinate must stay within [0, 16].
+    engine::TerrainGraph terrain(42, 64);
+    engine::Chunk chunk{};
+    chunk.coord = {0, 1, 0};
+    terrain.fill_chunk(chunk);
+
+    for (std::uint8_t si = 0; si < 8; ++si) {
+        std::vector<engine::TerrainVertex> ov, wv;
+        std::vector<std::uint32_t> oi, wi;
+        engine::mesh_section(chunk.sections[si], ov, oi, wv, wi);
+        for (const auto& v : ov) {
+            const int x = static_cast<int>(v.packed_position_normal & 31u);
+            const int y = static_cast<int>((v.packed_position_normal >> 5u) & 31u);
+            const int z = static_cast<int>((v.packed_position_normal >> 10u) & 31u);
+            REQUIRE(x <= engine::SECTION_DIM);
+            REQUIRE(y <= engine::SECTION_DIM);
+            REQUIRE(z <= engine::SECTION_DIM);
+        }
+    }
+}
+
 TEST_CASE("terrain chunk meshes after border refresh") {
     flecs::world world;
     world.import<engine::WorldModule>();

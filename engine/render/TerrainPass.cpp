@@ -1,6 +1,7 @@
 #include "engine/render/TerrainPass.hpp"
 
 #include "engine/render/HostMemory.hpp"
+#include "engine/render/Renderer.hpp"
 #include "engine/render/VkCheck.hpp"
 #include "engine/world/SectionIndexing.hpp"
 
@@ -52,29 +53,45 @@ bool TerrainPass::load_shader_module(const std::filesystem::path& path, VkShader
 }
 
 bool TerrainPass::create_descriptor_layout() {
-    const VkDescriptorSetLayoutBinding ubo_binding{
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+    const VkDescriptorSetLayoutBinding bindings[] = {
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        },
+        {
+            // Block texture array sampled by terrain.frag (also part of the
+            // water pass pipeline layout for compatibility; water.frag ignores it).
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
     };
 
     const VkDescriptorSetLayoutCreateInfo layout_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 1,
-        .pBindings = &ubo_binding,
+        .bindingCount = 2,
+        .pBindings = bindings,
     };
     VK_CHECK(vkCreateDescriptorSetLayout(context_->device(), &layout_info, nullptr, &descriptor_layout_));
 
-    const VkDescriptorPoolSize pool_size{
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = per_frame_writes_->frames_in_flight(),
+    const VkDescriptorPoolSize pool_sizes[] = {
+        {
+            .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = per_frame_writes_->frames_in_flight(),
+        },
+        {
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = per_frame_writes_->frames_in_flight(),
+        },
     };
     const VkDescriptorPoolCreateInfo pool_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .maxSets = per_frame_writes_->frames_in_flight(),
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
+        .poolSizeCount = 2,
+        .pPoolSizes = pool_sizes,
     };
     VK_CHECK(vkCreateDescriptorPool(context_->device(), &pool_info, nullptr, &descriptor_pool_));
 
@@ -107,6 +124,28 @@ bool TerrainPass::create_descriptor_layout() {
     }
 
     return true;
+}
+
+void TerrainPass::bind_block_texture(VkImageView image_view, VkSampler sampler) {
+    if (image_view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
+        return;
+    }
+    const VkDescriptorImageInfo image_info{
+        .sampler = sampler,
+        .imageView = image_view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    for (VkDescriptorSet set : descriptor_sets_) {
+        const VkWriteDescriptorSet write{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = 1,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &image_info,
+        };
+        vkUpdateDescriptorSets(context_->device(), 1, &write, 0, nullptr);
+    }
 }
 
 bool TerrainPass::create_pipeline(VkRenderPass render_pass, const std::filesystem::path& shader_dir) {
@@ -320,7 +359,8 @@ void TerrainPass::write_frame_uniforms(const std::uint64_t frame_index, const Fr
 }
 
 void TerrainPass::write_indirect_commands(const std::uint64_t frame_index,
-                                          const WorldRenderSnapshot& snapshot) {
+                                          const WorldRenderSnapshot& snapshot,
+                                          const GpuMeshPool& mesh_pool) {
     if (per_frame_writes_ == nullptr) {
         return;
     }
@@ -329,9 +369,15 @@ void TerrainPass::write_indirect_commands(const std::uint64_t frame_index,
     std::vector<VkDrawIndexedIndirectCommand> commands;
     commands.reserve(snapshot.opaque_sections.size());
 
-    for (const DrawSection& section : snapshot.opaque_sections) {
+    const std::size_t max_commands =
+        std::min(snapshot.opaque_sections.size(), Renderer::kMaxIndirectDraws);
+    commands.reserve(max_commands);
+    for (std::size_t i = 0; i < max_commands; ++i) {
+        const DrawSection& section = snapshot.opaque_sections[i];
+        const GpuMeshSlot* mesh_slot = mesh_pool.slot(section.vertex_buffer_id);
+        const std::uint32_t index_count = clamp_index_count(mesh_slot, section.index_count);
         commands.push_back(VkDrawIndexedIndirectCommand{
-            .indexCount = section.index_count,
+            .indexCount = index_count,
             .instanceCount = 1,
             .firstIndex = 0,
             .vertexOffset = 0,
@@ -395,10 +441,17 @@ void TerrainPass::record(VkCommandBuffer command_buffer,
     vkCmdSetViewport(command_buffer, 0, 1, &viewport);
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-    for (std::size_t draw_index = 0; draw_index < snapshot.opaque_sections.size(); ++draw_index) {
+    const std::size_t draw_count =
+        std::min(snapshot.opaque_sections.size(), Renderer::kMaxIndirectDraws);
+    for (std::size_t draw_index = 0; draw_index < draw_count; ++draw_index) {
         const DrawSection& section = snapshot.opaque_sections[draw_index];
         const GpuMeshSlot* mesh_slot = mesh_pool.slot(section.vertex_buffer_id);
-        if (mesh_slot == nullptr) {
+        if (mesh_slot == nullptr || mesh_slot->vertex_buffer == VK_NULL_HANDLE ||
+            mesh_slot->index_buffer == VK_NULL_HANDLE) {
+            continue;
+        }
+
+        if (clamp_index_count(mesh_slot, section.index_count) == 0) {
             continue;
         }
 

@@ -162,29 +162,37 @@ ENGINE_MESH_NOINLINE void emit_quad(
     std::vector<uint32_t>& indices) {
     const Face face = face_for_axis(axis, positive);
 
+    // The merged quad spans [u0, u0 + width] along U and [v0, v0 + height]
+    // along V. `width` grows along the inner (u) scan and `height` along the
+    // outer (v) scan, so U corners advance by `width` and V corners by `height`.
     glm::ivec3 corners[4];
     switch (axis) {
-    case 0:
+    case 0: // X slice: U -> y, V -> z
         corners[0] = {slice, u0, v0};
-        corners[1] = {slice, u0 + height, v0};
-        corners[2] = {slice, u0 + height, v0 + width};
-        corners[3] = {slice, u0, v0 + width};
+        corners[1] = {slice, u0 + width, v0};
+        corners[2] = {slice, u0 + width, v0 + height};
+        corners[3] = {slice, u0, v0 + height};
         break;
-    case 1:
+    case 1: // Y slice: U -> x, V -> z
         corners[0] = {u0, slice, v0};
-        corners[1] = {u0 + height, slice, v0};
-        corners[2] = {u0 + height, slice, v0 + width};
-        corners[3] = {u0, slice, v0 + width};
+        corners[1] = {u0 + width, slice, v0};
+        corners[2] = {u0 + width, slice, v0 + height};
+        corners[3] = {u0, slice, v0 + height};
         break;
-    default:
+    default: // Z slice: U -> x, V -> y
         corners[0] = {u0, v0, slice};
-        corners[1] = {u0 + height, v0, slice};
-        corners[2] = {u0 + height, v0 + width, slice};
-        corners[3] = {u0, v0 + width, slice};
+        corners[1] = {u0 + width, v0, slice};
+        corners[2] = {u0 + width, v0 + height, slice};
+        corners[3] = {u0, v0 + height, slice};
         break;
     }
 
-    if (!positive) {
+    // Winding: axis 1 (Y) positive faces (sky/top) need the opposite swap from X/Z.
+    if (axis == 1) {
+        if (positive) {
+            std::swap(corners[1], corners[3]);
+        }
+    } else if (!positive) {
         std::swap(corners[1], corners[3]);
     }
 

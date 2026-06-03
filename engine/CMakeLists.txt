@@ -47,6 +47,7 @@ set(ENGINE_RENDER_SOURCES
     render/MeshUploadQueue.cpp
     render/ShaderManager.cpp
     render/TerrainPass.cpp
+    render/BlockTextureArray.cpp
     render/SkyPass.cpp
     render/WaterPass.cpp
     render/PerFrameGpuWrites.cpp
@@ -66,10 +67,12 @@ target_link_libraries(engine_render PUBLIC
     volk
     Vulkan::Vulkan
     imgui_lib
+    stb_image
 )
 target_compile_definitions(engine_render PUBLIC
     ENGINE_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"
     ENGINE_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/shaders"
+    ENGINE_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets"
 )
 add_dependencies(engine_render shaders_spv)
 target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_DIR}/include)

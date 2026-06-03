@@ -39,8 +39,14 @@ public:
               PerFrameGpuWriteRing& per_frame_writes);
     void shutdown();
 
+    /// Point descriptor binding 1 (sampler2DArray) at the block texture array.
+    /// Call once after the texture is uploaded, before the first frame.
+    void bind_block_texture(VkImageView image_view, VkSampler sampler);
+
     void write_frame_uniforms(std::uint64_t frame_index, const FrameUniformGpu& uniforms);
-    void write_indirect_commands(std::uint64_t frame_index, const WorldRenderSnapshot& snapshot);
+    void write_indirect_commands(std::uint64_t frame_index,
+                                 const WorldRenderSnapshot& snapshot,
+                                 const GpuMeshPool& mesh_pool);
 
     void record(VkCommandBuffer command_buffer,
                 std::uint64_t frame_index,

@@ -163,6 +163,21 @@ endif()
 add_library(miniaudio INTERFACE)
 target_include_directories(miniaudio INTERFACE ${miniaudio_SOURCE_DIR})
 
+# --- Textures: stb_image (single-header) for block texture loading ---
+
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(stb)
+if(NOT stb_POPULATED)
+    FetchContent_Populate(stb)
+endif()
+add_library(stb_image INTERFACE)
+target_include_directories(stb_image INTERFACE ${stb_SOURCE_DIR})
+
 # --- M6: Jolt Physics (sensor stub; terrain collision uses VoxelCapsuleResolver) ---
 
 option(ENGINE_JOLT "Fetch and link Jolt Physics" ON)

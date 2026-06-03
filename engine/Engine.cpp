@@ -97,7 +97,7 @@ bool Engine::startup() {
     renderer_.set_ui_host(&ui_host_);
 
     chunk_gpu_services_.deferred_free = &renderer_.deferred_free_queue();
-    chunk_gpu_services_.frame_index = [this]() { return frame_index_; };
+    chunk_gpu_services_.submit_snapshot_slot = [this]() { return last_submit_snapshot_slot_; };
     set_chunk_gpu_services(&chunk_gpu_services_);
 
     saves_root_ = std::filesystem::path(ENGINE_SOURCE_DIR) / "saves";
@@ -142,16 +142,6 @@ bool Engine::startup() {
         SPDLOG_INFO("Terrain render mode: thin preview (single chunk at origin)");
     } else {
         streaming_terrain_.init(world_, chunk_store_, jobs_, config_.world());
-        streaming_terrain_.register_observers(world_);
-        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
-            streaming_terrain_.bootstrap_existing_chunks(
-                chunk_store_, camera_component->camera.position);
-            streaming_terrain_.warmup_meshes_near_focus(
-                jobs_, camera_component->camera.position, 4);
-            SPDLOG_INFO(
-                "Terrain mesh warmup: {} mesh-ready sections",
-                streaming_terrain_.count_mesh_ready_sections());
-        }
         SPDLOG_INFO("Terrain render mode: streaming multi-chunk");
     }
     SPDLOG_INFO(
@@ -160,13 +150,32 @@ bool Engine::startup() {
         config_.streaming().horizontal_radius_chunks,
         config_.streaming().vertical_radius_chunks);
 
+    // Load spawn chunks before observers — on_chunk_loaded invalidates neighbors and
+    // would cascade hundreds of remeshes if fired during initial neighborhood load.
     refresh_spawn_gate();
+    if (!config_.thin_terrain_preview()) {
+        streaming_terrain_.register_observers(world_);
+        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            streaming_terrain_.bootstrap_existing_chunks(
+                chunk_store_, camera_component->camera.position);
+            streaming_terrain_.warmup_meshes_near_focus(
+                jobs_, camera_component->camera.position, 60);
+            SPDLOG_INFO(
+                "Terrain mesh warmup: {} mesh-ready sections",
+                streaming_terrain_.count_mesh_ready_sections());
+        }
+    }
     if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
         player_motor_.sync_capsule_from_camera(camera_component->camera.position);
     }
 
     started_ = true;
-    SPDLOG_INFO("Engine startup complete (steps 1-16)");
+    SPDLOG_INFO(
+        "Engine startup complete (build 2026-06-03i); indirect draw buffer capacity {}",
+        engine::Renderer::kIndirectBufferDraws);
+    if (auto logger = spdlog::default_logger()) {
+        logger->flush();
+    }
     return true;
 }
 
@@ -342,13 +351,11 @@ void Engine::render_build(std::uint32_t snapshot_slot) {
         return;
     }
 
-    streaming_terrain_.on_frame(
-        camera_component->camera.position,
-        frame_index_,
-        renderer_.mesh_pool(),
-        renderer_.mesh_upload_queue(),
-        renderer_.deferred_free_queue());
-    streaming_terrain_.build_snapshot(snapshot, origin_rebase_.render_origin(), chunk_store_);
+    streaming_terrain_.on_frame(camera_component->camera.position,
+                                last_submit_snapshot_slot_,
+                                renderer_.mesh_pool(),
+                                renderer_.mesh_upload_queue(),
+                                renderer_.deferred_free_queue());
 }
 
 void Engine::run() {
@@ -356,6 +363,11 @@ void Engine::run() {
     auto last_frame_time = clock::now();
     auto last_chunk_log = last_frame_time;
     float fps = 0.f;
+
+    SPDLOG_INFO("Entering main loop");
+    if (auto logger = spdlog::default_logger()) {
+        logger->flush();
+    }
 
     while (!should_close()) {
         platform_.poll();
@@ -377,12 +389,6 @@ void Engine::run() {
         }
 
         audio_.tick();
-        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
-            audio_.update_listener(
-                camera_component->camera.position,
-                camera_component->camera.forward(),
-                camera_component->camera.up());
-        }
 
         if (input_.save_pressed()) {
             (void)save_world_to_disk();
@@ -392,6 +398,10 @@ void Engine::run() {
         }
 
         if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            audio_.update_listener(
+                camera_component->camera.position,
+                camera_component->camera.forward(),
+                camera_component->camera.up());
             const bool fly_toggle_now = glfwGetKey(platform_.window(), GLFW_KEY_F) == GLFW_PRESS;
             if (fly_toggle_now && !fly_mode_toggle_down_) {
                 walk_mode_ = !walk_mode_;
@@ -424,8 +434,6 @@ void Engine::run() {
                 CameraSystem::update_look_from_input(*camera_component, input_);
             } else if (!inventory_open_) {
                 CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
-                origin_rebase_.maybe_rebase(
-                    world_, camera_component->camera.position, config_.world());
             }
 
             const CreativeBlockPicker* creative_picker =
@@ -445,8 +453,27 @@ void Engine::run() {
             const glm::ivec3 world_blocks = glm::ivec3(glm::floor(camera_component->camera.position));
             const WorldPosition player_pos =
                 WorldPosition::from_world_blocks(world_blocks.x, world_blocks.y, world_blocks.z);
-            update_streaming(
-                chunk_store_, world_, config_.streaming(), config_.world(), player_pos);
+            // No meshing barrier here: mesh workers are self-contained (they only
+            // touch their copied section snapshot, never ChunkStore), so streaming
+            // may mutate the store while meshes finish asynchronously. Completions
+            // are drained and validated on the main thread in on_frame().
+
+            std::vector<ChunkCoord> chunks_loaded_this_frame;
+            world_.defer_begin();
+            const int chunks_loaded_count = update_streaming(
+                chunk_store_,
+                world_,
+                config_.streaming(),
+                config_.world(),
+                player_pos,
+                &chunks_loaded_this_frame);
+            world_.defer_end();
+
+            if (!config_.thin_terrain_preview() && chunks_loaded_count > 0) {
+                // Reschedules border-healed remeshes (dispatch only, no wait); the
+                // resulting meshes are picked up asynchronously by on_frame().
+                streaming_terrain_.heal_seams_after_chunk_loads(chunks_loaded_this_frame);
+            }
 
             if (!walk_mode_ || !spawn_gate_.is_ready()) {
                 origin_rebase_.maybe_rebase(
@@ -455,17 +482,54 @@ void Engine::run() {
         }
 
         const auto now = clock::now();
+        if (frame_index_ < 3) {
+            SPDLOG_INFO(
+                "Frame {}: chunks={} draw_sections={}",
+                frame_index_,
+                chunk_store_.loaded_count(),
+                last_draw_sections_);
+            if (auto logger = spdlog::default_logger()) {
+                logger->flush();
+            }
+        }
+
         if (now - last_chunk_log >= std::chrono::seconds(1)) {
             SPDLOG_INFO("Loaded chunks: {}", chunk_store_.loaded_count());
             last_chunk_log = now;
         }
 
+        if (renderer_.device_lost()) {
+            renderer_.recover_if_device_lost();
+            if (!config_.thin_terrain_preview()) {
+                streaming_terrain_.reset_gpu_after_device_lost();
+            }
+            continue;
+        }
+
         const std::uint32_t snapshot_slot = renderer_.snapshot_ring().pick_write_slot();
+        last_submit_snapshot_slot_ = snapshot_slot;
+        if (renderer_.snapshot_ring().consume_pick_device_lost()) {
+            renderer_.note_device_lost();
+            renderer_.recover_if_device_lost();
+            if (!config_.thin_terrain_preview()) {
+                streaming_terrain_.reset_gpu_after_device_lost();
+            }
+            continue;
+        }
+        if (!config_.thin_terrain_preview()) {
+            const std::vector<MeshUploadFlushMark> gpu_ready_marks =
+                renderer_.consume_upload_marks_for_snapshot(snapshot_slot);
+            if (!gpu_ready_marks.empty()) {
+                streaming_terrain_.mark_uploads_complete(gpu_ready_marks, renderer_.mesh_pool());
+            }
+        }
         render_build(snapshot_slot);
 
-        const WorldRenderSnapshot& snapshot = renderer_.snapshot_ring().snapshot(snapshot_slot);
-        const std::uint32_t draw_sections =
-            static_cast<std::uint32_t>(snapshot.opaque_sections.size() + snapshot.water_sections.size());
+        const std::uint32_t draw_sections = config_.thin_terrain_preview()
+            ? static_cast<std::uint32_t>(
+                  renderer_.snapshot_ring().snapshot(snapshot_slot).opaque_sections.size() +
+                  renderer_.snapshot_ring().snapshot(snapshot_slot).water_sections.size())
+            : last_draw_sections_;
         const std::uint32_t mesh_ready_sections = config_.thin_terrain_preview()
             ? 0
             : static_cast<std::uint32_t>(streaming_terrain_.count_mesh_ready_sections());
@@ -495,7 +559,17 @@ void Engine::run() {
             },
             inventory_ui);
         inventory_open_ = inventory_ui.inventory_open;
-        renderer_.render_frame(snapshot_slot);
+
+        if (config_.thin_terrain_preview()) {
+            renderer_.render_frame(snapshot_slot);
+        } else {
+            renderer_.render_frame(snapshot_slot, [&](WorldRenderSnapshot& snap) {
+                streaming_terrain_.build_snapshot(
+                    snap, origin_rebase_.render_origin(), chunk_store_, renderer_.mesh_pool());
+                last_draw_sections_ = static_cast<std::uint32_t>(snap.opaque_sections.size() +
+                                                                 snap.water_sections.size());
+            });
+        }
         ++frame_index_;
     }
 }

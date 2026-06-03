@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/core/EngineConfig.hpp"
+#include "engine/render/BlockTextureArray.hpp"
 #include "engine/render/GpuDeferredFreeQueue.hpp"
 #include "engine/render/GpuMeshPool.hpp"
 #include "engine/render/MeshUploadQueue.hpp"
@@ -14,6 +15,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -28,7 +30,12 @@ class UiHost;
 class Renderer {
 public:
     static constexpr std::uint32_t kFramesInFlight = 2;
+    /// Max opaque draws per frame (snapshot + terrain pass).
     static constexpr std::size_t kMaxIndirectDraws = 512;
+    /// Water indirect commands are packed after opaque reserved slots in the per-frame buffer.
+    static constexpr std::size_t kMaxWaterIndirectDraws = 128;
+    static constexpr std::size_t kIndirectBufferDraws =
+        kMaxIndirectDraws + kMaxWaterIndirectDraws;
 
     Renderer() = default;
     ~Renderer();
@@ -54,7 +61,14 @@ public:
     void set_ui_host(UiHost* ui_host) { ui_host_ = ui_host; }
     /// Call after EngineConfig::finalize_gpu — mesh pool is created in init() with budget 0.
     void apply_memory_budget(const MemoryBudget& memory_budget);
-    void render_frame(std::uint32_t snapshot_slot);
+    [[nodiscard]] bool device_lost() const { return device_lost_; }
+    void note_device_lost();
+    void recover_if_device_lost();
+    /// GPU-finished upload marks from the last submit on this snapshot slot (moved out).
+    [[nodiscard]] std::vector<MeshUploadFlushMark> consume_upload_marks_for_snapshot(
+        std::uint32_t snapshot_slot);
+    void render_frame(std::uint32_t snapshot_slot,
+                      std::function<void(WorldRenderSnapshot&)> fill_snapshot = {});
 
 private:
     struct FrameUniformStub {
@@ -63,6 +77,7 @@ private:
         glm::vec3 render_origin{0.f};
     };
 
+    bool load_block_textures();
     bool create_render_pass();
     bool create_depth_resources();
     void destroy_depth_resources();
@@ -77,15 +92,18 @@ private:
 
     bool begin_frame(std::uint32_t& image_index);
     void end_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
-    void record_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
+    void record_frame(std::uint32_t image_index,
+                      std::uint32_t snapshot_slot,
+                      const std::function<void(WorldRenderSnapshot&)>& fill_snapshot);
 
     VulkanContext context_{};
     SnapshotRing snapshot_ring_{kFramesInFlight};
-    GpuDeferredFreeQueue deferred_free_{kFramesInFlight};
+    GpuDeferredFreeQueue deferred_free_{SnapshotRing::snapshot_count(kFramesInFlight)};
     GpuMeshPool mesh_pool_{};
     std::unique_ptr<MeshUploadQueue> mesh_upload_queue_;
     std::unique_ptr<PerFrameGpuWriteRing> per_frame_writes_;
     TerrainPass terrain_pass_{};
+    BlockTextureArray block_textures_{};
     SkyPass sky_pass_{};
     WaterPass water_pass_{};
     ShaderManager shader_manager_{};
@@ -107,6 +125,9 @@ private:
     std::uint32_t frame_index_ = 0;
     UiHost* ui_host_ = nullptr;
     bool initialized_ = false;
+    bool device_lost_ = false;
+    std::vector<std::vector<MeshUploadFlushMark>> snapshot_upload_marks_{
+        SnapshotRing::snapshot_count(kFramesInFlight)};
 };
 
 } // namespace engine

@@ -96,9 +96,12 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
     deferred_free_.set_free_callback([this](const std::uint32_t slot_id) {
         mesh_pool_.release_immediate(slot_id);
     });
-    deferred_free_.set_fence_checker([this](const std::uint32_t ring_index) {
-        const std::uint32_t slot = ring_index % snapshot_ring_.slot_count();
-        return vkGetFenceStatus(context_.device(), snapshot_ring_.fence(slot)) == VK_SUCCESS;
+    deferred_free_.set_fence_checker([this](const std::uint32_t snapshot_slot) {
+        if (snapshot_slot >= snapshot_ring_.slot_count()) {
+            return false;
+        }
+        return vkGetFenceStatus(context_.device(), snapshot_ring_.fence(snapshot_slot)) ==
+               VK_SUCCESS;
     });
 
     mesh_pool_.init(context_.device(),
@@ -114,7 +117,7 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
 
     per_frame_writes_ = std::make_unique<PerFrameGpuWriteRing>(kFramesInFlight,
                                                                gpu_caps_,
-                                                               kMaxIndirectDraws,
+                                                               kIndirectBufferDraws,
                                                                sizeof(TerrainPass::FrameUniformGpu));
     per_frame_writes_->init(context_.device(), context_.physical_device());
 
@@ -151,6 +154,13 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
         shutdown();
         return false;
     }
+
+    if (!load_block_textures()) {
+        SPDLOG_ERROR("Failed to load block textures");
+        shutdown();
+        return false;
+    }
+    terrain_pass_.bind_block_texture(block_textures_.image_view(), block_textures_.sampler());
 
     if (!sky_pass_.init(context_, render_pass_, shader_dir)) {
         SPDLOG_ERROR("Failed to initialize sky pass");
@@ -200,6 +210,7 @@ void Renderer::shutdown() {
 
     sky_pass_.shutdown();
     water_pass_.shutdown();
+    block_textures_.shutdown();
     terrain_pass_.shutdown();
     shader_manager_.shutdown();
     per_frame_writes_.reset();
@@ -232,19 +243,56 @@ float Renderer::aspect_ratio() const {
 }
 
 void Renderer::process_deferred_frees() {
-    deferred_free_.set_fence_checker([this](const std::uint32_t ring_index) {
-        const std::uint32_t slot = ring_index % snapshot_ring_.slot_count();
-        return vkGetFenceStatus(context_.device(), snapshot_ring_.fence(slot)) == VK_SUCCESS;
+    deferred_free_.set_fence_checker([this](const std::uint32_t snapshot_slot) {
+        if (snapshot_slot >= snapshot_ring_.slot_count()) {
+            return false;
+        }
+        const VkResult status =
+            vkGetFenceStatus(context_.device(), snapshot_ring_.fence(snapshot_slot));
+        return status == VK_SUCCESS;
     });
     deferred_free_.process_completed();
 }
 
-void Renderer::render_frame(const std::uint32_t snapshot_slot) {
+void Renderer::note_device_lost() {
+    device_lost_ = true;
+}
+
+std::vector<MeshUploadFlushMark> Renderer::consume_upload_marks_for_snapshot(
+    const std::uint32_t snapshot_slot) {
+    if (snapshot_slot >= snapshot_upload_marks_.size()) {
+        return {};
+    }
+    return std::move(snapshot_upload_marks_[snapshot_slot]);
+}
+
+void Renderer::recover_if_device_lost() {
+    if (!device_lost_ || !initialized_) {
+        return;
+    }
+
+    SPDLOG_WARN("Recovering from Vulkan device lost");
+    vkDeviceWaitIdle(context_.device());
+    deferred_free_.flush_pending_immediate();
+    snapshot_ring_.reset_fences_after_idle();
+    for (std::vector<MeshUploadFlushMark>& marks : snapshot_upload_marks_) {
+        marks.clear();
+    }
+    recreate_swapchain();
+    device_lost_ = false;
+}
+
+void Renderer::render_frame(const std::uint32_t snapshot_slot,
+                            std::function<void(WorldRenderSnapshot&)> fill_snapshot) {
     if (!initialized_) {
         return;
     }
 
     if (!context_.has_valid_extent()) {
+        return;
+    }
+
+    if (device_lost_) {
         return;
     }
 
@@ -265,7 +313,7 @@ void Renderer::render_frame(const std::uint32_t snapshot_slot) {
         return;
     }
 
-    record_frame(image_index, snapshot_slot);
+    record_frame(image_index, snapshot_slot, fill_snapshot);
     end_frame(image_index, snapshot_slot);
     ++frame_index_;
 }
@@ -284,6 +332,11 @@ bool Renderer::begin_frame(std::uint32_t& image_index) {
         recreate_swapchain();
         return false;
     }
+    if (acquire_result == VK_ERROR_DEVICE_LOST) {
+        SPDLOG_CRITICAL("Vulkan device lost during acquire");
+        device_lost_ = true;
+        return false;
+    }
     if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
         VK_CHECK(acquire_result);
     }
@@ -291,7 +344,9 @@ bool Renderer::begin_frame(std::uint32_t& image_index) {
     return true;
 }
 
-void Renderer::record_frame(const std::uint32_t image_index, const std::uint32_t snapshot_slot) {
+void Renderer::record_frame(const std::uint32_t image_index,
+                            const std::uint32_t snapshot_slot,
+                            const std::function<void(WorldRenderSnapshot&)>& fill_snapshot) {
     const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
     VkCommandBuffer command_buffer = command_buffers_[frame_slot];
     const WorldRenderSnapshot& snapshot = snapshot_ring_.snapshot(snapshot_slot);
@@ -306,6 +361,10 @@ void Renderer::record_frame(const std::uint32_t image_index, const std::uint32_t
 
     mesh_upload_queue_->flush(command_buffer, frame_index_, mesh_pool_);
 
+    if (fill_snapshot) {
+        fill_snapshot(snapshot_ring_.snapshot(snapshot_slot));
+    }
+
     const TerrainPass::FrameUniformGpu uniforms{
         .view = frame_uniforms_.view,
         .proj = frame_uniforms_.proj,
@@ -314,8 +373,8 @@ void Renderer::record_frame(const std::uint32_t image_index, const std::uint32_t
     const std::size_t opaque_draw_count = snapshot.opaque_sections.size();
 
     terrain_pass_.write_frame_uniforms(frame_index_, uniforms);
-    terrain_pass_.write_indirect_commands(frame_index_, snapshot);
-    water_pass_.write_indirect_commands(frame_index_, snapshot, opaque_draw_count);
+    terrain_pass_.write_indirect_commands(frame_index_, snapshot, mesh_pool_);
+    water_pass_.write_indirect_commands(frame_index_, snapshot, mesh_pool_, opaque_draw_count);
 
     const VkClearValue clear_values[] = {
         {.color = {{kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3]}}},
@@ -367,8 +426,21 @@ void Renderer::end_frame(const std::uint32_t image_index, const std::uint32_t sn
         .pSignalSemaphores = signal_semaphores.data(),
     };
 
-    VK_CHECK(vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, snapshot_ring_.fence(snapshot_slot)));
+    const VkResult submit_result =
+        vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, snapshot_ring_.fence(snapshot_slot));
+    if (submit_result == VK_ERROR_DEVICE_LOST) {
+        SPDLOG_CRITICAL("Vulkan device lost — will recreate swapchain next frame");
+        device_lost_ = true;
+        if (auto logger = spdlog::default_logger()) {
+            logger->flush();
+        }
+        return;
+    }
+    VK_CHECK(submit_result);
     snapshot_ring_.mark_submitted(snapshot_slot);
+    if (snapshot_slot < snapshot_upload_marks_.size()) {
+        snapshot_upload_marks_[snapshot_slot] = mesh_upload_queue_->last_flushed_marks();
+    }
 
     VkSwapchainKHR swapchain = context_.swapchain();
     const VkPresentInfoKHR present_info{
@@ -383,6 +455,11 @@ void Renderer::end_frame(const std::uint32_t image_index, const std::uint32_t sn
     const VkResult present_result = vkQueuePresentKHR(context_.present_queue(), &present_info);
     if (present_result == VK_ERROR_OUT_OF_DATE_KHR) {
         recreate_swapchain();
+        return;
+    }
+    if (present_result == VK_ERROR_DEVICE_LOST) {
+        SPDLOG_CRITICAL("Vulkan device lost during present");
+        device_lost_ = true;
         return;
     }
     if (present_result != VK_SUCCESS && present_result != VK_SUBOPTIMAL_KHR) {
@@ -440,6 +517,8 @@ void Renderer::recreate_render_passes() {
         SPDLOG_ERROR("Failed to recreate terrain pass");
         return;
     }
+    // Re-point the freshly allocated descriptor sets at the existing texture array.
+    terrain_pass_.bind_block_texture(block_textures_.image_view(), block_textures_.sampler());
     if (!sky_pass_.init(context_, render_pass_, shader_dir)) {
         SPDLOG_ERROR("Failed to recreate sky pass");
         return;
@@ -451,6 +530,19 @@ void Renderer::recreate_render_passes() {
                           terrain_pass_.descriptor_layout())) {
         SPDLOG_ERROR("Failed to recreate water pass");
     }
+}
+
+bool Renderer::load_block_textures() {
+    // Layer order must match layer_for() in terrain.frag:
+    //   0 = stone, 1 = dirt, 2 = grass top, 3 = grass side.
+    const std::filesystem::path tex_dir = std::filesystem::path(ENGINE_ASSET_DIR) / "textures";
+    const std::vector<std::filesystem::path> layer_files = {
+        tex_dir / "stone.png",
+        tex_dir / "dirt.png",
+        tex_dir / "grass_top.png",
+        tex_dir / "grass_side.png",
+    };
+    return block_textures_.init(context_, layer_files);
 }
 
 bool Renderer::create_render_pass() {
