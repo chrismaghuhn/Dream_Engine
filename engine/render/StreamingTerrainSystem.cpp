@@ -18,6 +18,12 @@ namespace {
     return glm::length(section.model_translation + glm::vec3(8.f));
 }
 
+[[nodiscard]] float chunk_distance_sq(ChunkCoord coord, const glm::vec3& focus_world) {
+    const glm::vec3 chunk_center = glm::vec3(coord) * 32.f + glm::vec3(16.f);
+    const glm::vec3 delta = chunk_center - focus_world;
+    return glm::dot(delta, delta);
+}
+
 } // namespace
 
 void StreamingTerrainSystem::init(
