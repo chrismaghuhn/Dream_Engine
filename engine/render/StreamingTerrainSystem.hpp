@@ -32,7 +32,7 @@ public:
     void build_snapshot(WorldRenderSnapshot& snapshot, const glm::vec3& render_origin, ChunkStore& store);
 
     /// Refresh borders + schedule meshes for chunks already in the store (e.g. after save load).
-    void bootstrap_existing_chunks(ChunkStore& store);
+    void bootstrap_existing_chunks(ChunkStore& store, const glm::vec3& focus_world);
 
     [[nodiscard]] std::size_t count_mesh_ready_sections() const;
     [[nodiscard]] std::size_t count_gpu_ready_sections() const;
@@ -84,8 +84,13 @@ private:
     void sync_entity_mesh_slots(ChunkCoord coord, const ChunkMeshState& state);
     void process_mesh_backlog();
 
-    static constexpr int kMaxPendingMeshJobs = 256;
-    static constexpr int kMaxGpuAllocationsPerFrame = 64;
+    static constexpr int kMaxPendingMeshJobs = 64;
+    static constexpr int kMaxGpuAllocationsPerFrame = 32;
+    static constexpr int kMaxUploadsPerFrame = 32;
+    static constexpr int kMaxDrawSections = 512;
+    static constexpr int kMeshChunkRadius = 8;
+
+    [[nodiscard]] bool chunk_within_mesh_radius(ChunkCoord coord) const;
 
     glm::vec3 focus_world_{0.f};
     flecs::world* world_ = nullptr;

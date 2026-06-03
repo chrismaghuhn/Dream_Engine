@@ -74,8 +74,16 @@ void StreamingTerrainSystem::register_observers(flecs::world& world) {
         });
 }
 
+bool StreamingTerrainSystem::chunk_within_mesh_radius(const ChunkCoord coord) const {
+    constexpr float kRadiusBlocks = static_cast<float>(kMeshChunkRadius * 32);
+    return chunk_distance_sq(coord, focus_world_) <= kRadiusBlocks * kRadiusBlocks;
+}
+
 void StreamingTerrainSystem::on_chunk_loaded(const ChunkCoord coord) {
     if (store_->is_pending_unload(coord)) {
+        return;
+    }
+    if (!chunk_within_mesh_radius(coord)) {
         return;
     }
     schedule_chunk_mesh(coord);
@@ -200,6 +208,10 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool, const std:
             continue;
         }
 
+        if (!chunk_within_mesh_radius(coord)) {
+            continue;
+        }
+
         const float chunk_dist = chunk_distance_sq(coord, focus_world_);
         for (SectionMeshState& section_state : chunk_state.sections) {
             if (!section_state.mesh_ready) {
@@ -263,8 +275,15 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool, const std:
 }
 
 void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue) {
+    int queued_this_frame = 0;
     for (auto& [coord, chunk_state] : chunk_meshes_) {
+        if (queued_this_frame >= kMaxUploadsPerFrame) {
+            break;
+        }
         if (store_->try_get(coord) == nullptr || store_->is_pending_unload(coord)) {
+            continue;
+        }
+        if (!chunk_within_mesh_radius(coord)) {
             continue;
         }
 
@@ -277,6 +296,11 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue) {
                     .indices = section_state.opaque_indices,
                 });
                 section_state.opaque_upload_queued = true;
+                ++queued_this_frame;
+            }
+
+            if (queued_this_frame >= kMaxUploadsPerFrame) {
+                break;
             }
 
             if (section_state.water_gpu_allocated && !section_state.water_upload_queued &&
@@ -287,6 +311,7 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue) {
                     .indices = section_state.water_indices,
                 });
                 section_state.water_upload_queued = true;
+                ++queued_this_frame;
             }
         }
     }
@@ -329,10 +354,11 @@ std::size_t StreamingTerrainSystem::count_mesh_ready_sections() const {
     return count;
 }
 
-void StreamingTerrainSystem::bootstrap_existing_chunks(ChunkStore& store) {
+void StreamingTerrainSystem::bootstrap_existing_chunks(ChunkStore& store, const glm::vec3& focus_world) {
     store_ = &store;
+    focus_world_ = focus_world;
     store.for_each_loaded([&](const ChunkCoord coord) {
-        if (!store.is_pending_unload(coord)) {
+        if (!store.is_pending_unload(coord) && chunk_within_mesh_radius(coord)) {
             refresh_chunk_section_borders(store, coord);
             on_chunk_loaded(coord);
         }
@@ -345,7 +371,7 @@ void StreamingTerrainSystem::warmup_meshes_near_focus(
     focus_world_ = focus_world;
     process_mesh_backlog();
 
-    for (int attempt = 0; attempt < 400 && count_mesh_ready_sections() < min_sections; ++attempt) {
+    for (int attempt = 0; attempt < 80 && count_mesh_ready_sections() < min_sections; ++attempt) {
         jobs.wait_meshing();
         drain_mesh_completions();
         process_mesh_backlog();
@@ -384,6 +410,9 @@ void StreamingTerrainSystem::process_mesh_backlog() {
     for (const ChunkCoord coord : coords) {
         if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
             break;
+        }
+        if (!chunk_within_mesh_radius(coord)) {
+            continue;
         }
 
         ChunkMeshState& chunk_state = chunk_meshes_[coord];
@@ -433,6 +462,12 @@ void StreamingTerrainSystem::build_snapshot(
         if (store.is_pending_unload(coord)) {
             return;
         }
+        if (!chunk_within_mesh_radius(coord)) {
+            return;
+        }
+        if (opaque_indirect_index >= kMaxDrawSections) {
+            return;
+        }
 
         const auto chunk_it = chunk_meshes_.find(coord);
         if (chunk_it == chunk_meshes_.end()) {
@@ -473,6 +508,10 @@ void StreamingTerrainSystem::build_snapshot(
                     .cull_min = cull_min,
                     .cull_max = cull_max,
                 });
+            }
+
+            if (water_indirect_index >= kMaxDrawSections) {
+                continue;
             }
 
             if (section_state.mesh_ready && section_state.water_gpu_allocated &&

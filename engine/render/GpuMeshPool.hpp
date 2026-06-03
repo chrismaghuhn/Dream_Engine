@@ -55,6 +55,7 @@ public:
 private:
     [[nodiscard]] GpuMeshSlot* find_slot(std::uint32_t slot_id);
     [[nodiscard]] const GpuMeshSlot* find_slot(std::uint32_t slot_id) const;
+    [[nodiscard]] std::uint32_t allocate_sized(std::size_t vertex_bytes, std::size_t index_bytes);
     [[nodiscard]] std::uint32_t allocate_bucket(MeshBucket bucket);
     void destroy_slot_resources(GpuMeshSlot& slot);
     void return_slot_to_freelist(GpuMeshSlot& slot);

@@ -143,8 +143,9 @@ bool Engine::startup() {
     } else {
         streaming_terrain_.init(world_, chunk_store_, jobs_, config_.world());
         streaming_terrain_.register_observers(world_);
-        streaming_terrain_.bootstrap_existing_chunks(chunk_store_);
         if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            streaming_terrain_.bootstrap_existing_chunks(
+                chunk_store_, camera_component->camera.position);
             streaming_terrain_.warmup_meshes_near_focus(
                 jobs_, camera_component->camera.position, 4);
             SPDLOG_INFO(
@@ -370,10 +371,6 @@ void Engine::run() {
 
         sim_clock_.advance(frame_delta);
         sim_tick_ += sim_clock_.step([this]() { tick_player_simulation(); });
-
-        if (!config_.thin_terrain_preview() && frame_index_ % 30 == 0) {
-            jobs_.wait_meshing();
-        }
 
         if (auto* camera_component = player_fly_.get<CameraComponent>()) {
             debris_.tick(world_, camera_component->camera.position);

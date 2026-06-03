@@ -106,8 +106,10 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
                     memory_budget_.gpu_mesh_vram,
                     &deferred_free_);
 
-    mesh_upload_queue_ =
-        std::make_unique<MeshUploadQueue>(kFramesInFlight, memory_budget_.chunk_mesh_cpu_ram);
+    const std::size_t staging_cpu_ram = memory_budget_.chunk_mesh_cpu_ram > 0
+        ? memory_budget_.chunk_mesh_cpu_ram
+        : (128ULL * 1024 * 1024);
+    mesh_upload_queue_ = std::make_unique<MeshUploadQueue>(kFramesInFlight, staging_cpu_ram);
     mesh_upload_queue_->init(context_.device(), context_.physical_device(), gpu_caps_);
 
     per_frame_writes_ = std::make_unique<PerFrameGpuWriteRing>(kFramesInFlight,
@@ -172,6 +174,19 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
                 gpu_caps_.vram_bytes / (1024 * 1024),
                 gpu_caps_.graphics_queue_family);
     return true;
+}
+
+void Renderer::apply_memory_budget(const MemoryBudget& memory_budget) {
+    memory_budget_ = memory_budget;
+    if (!initialized_) {
+        return;
+    }
+
+    mesh_pool_.set_bytes_budget(memory_budget_.gpu_mesh_vram);
+    SPDLOG_INFO(
+        "Mesh pool VRAM budget applied: {} MiB (used {} KiB)",
+        memory_budget_.gpu_mesh_vram / (1024 * 1024),
+        mesh_pool_.bytes_used() / 1024);
 }
 
 void Renderer::shutdown() {

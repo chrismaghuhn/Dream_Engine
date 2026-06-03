@@ -127,6 +127,79 @@ void GpuMeshPool::return_slot_to_freelist(GpuMeshSlot& slot) {
     free_lists_[static_cast<std::size_t>(slot.bucket)].push_back(slot.slot_id);
 }
 
+std::uint32_t GpuMeshPool::allocate_sized(const std::size_t vertex_bytes, const std::size_t index_bytes) {
+    if (device_ == VK_NULL_HANDLE || vertex_bytes == 0 || index_bytes == 0) {
+        return 0;
+    }
+
+    const VkDeviceSize vertex_size = static_cast<VkDeviceSize>(vertex_bytes);
+    const VkDeviceSize index_size = static_cast<VkDeviceSize>(index_bytes);
+
+    const VkBufferCreateInfo vertex_info{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = vertex_size,
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+    const VkBufferCreateInfo index_info{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = index_size,
+        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+
+    GpuMeshSlot slot{};
+    slot.slot_id = next_slot_id_++;
+    slot.bucket = MeshBucket::B256K;
+    slot.vertex_capacity = vertex_bytes;
+    slot.index_capacity = index_bytes;
+    slot.live = true;
+
+    VK_CHECK(vkCreateBuffer(device_, &vertex_info, nullptr, &slot.vertex_buffer));
+    VK_CHECK(vkCreateBuffer(device_, &index_info, nullptr, &slot.index_buffer));
+
+    VkMemoryRequirements vertex_requirements{};
+    VkMemoryRequirements index_requirements{};
+    vkGetBufferMemoryRequirements(device_, slot.vertex_buffer, &vertex_requirements);
+    vkGetBufferMemoryRequirements(device_, slot.index_buffer, &index_requirements);
+
+    const VkDeviceSize alignment =
+        std::max(vertex_requirements.alignment, index_requirements.alignment);
+    const VkDeviceSize index_offset =
+        (vertex_requirements.size + alignment - 1) & ~(alignment - 1);
+    const VkDeviceSize total_size = index_offset + index_requirements.size;
+
+    if (bytes_used_ + static_cast<std::size_t>(total_size) > bytes_budget_) {
+        vkDestroyBuffer(device_, slot.vertex_buffer, nullptr);
+        vkDestroyBuffer(device_, slot.index_buffer, nullptr);
+        return 0;
+    }
+
+    const std::uint32_t memory_type = find_memory_type(
+        physical_device_,
+        vertex_requirements.memoryTypeBits | index_requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memory_type == UINT32_MAX) {
+        vkDestroyBuffer(device_, slot.vertex_buffer, nullptr);
+        vkDestroyBuffer(device_, slot.index_buffer, nullptr);
+        return 0;
+    }
+
+    const VkMemoryAllocateInfo alloc_info{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = total_size,
+        .memoryTypeIndex = memory_type,
+    };
+    VK_CHECK(vkAllocateMemory(device_, &alloc_info, nullptr, &slot.memory));
+    VK_CHECK(vkBindBufferMemory(device_, slot.vertex_buffer, slot.memory, 0));
+    VK_CHECK(vkBindBufferMemory(device_, slot.index_buffer, slot.memory, index_offset));
+
+    slot.memory_size = total_size;
+    bytes_used_ += static_cast<std::size_t>(total_size);
+    slots_.push_back(slot);
+    return slot.slot_id;
+}
+
 std::uint32_t GpuMeshPool::allocate_bucket(const MeshBucket bucket) {
     auto& free_list = free_lists_[static_cast<std::size_t>(bucket)];
     if (!free_list.empty()) {
@@ -211,12 +284,19 @@ std::uint32_t GpuMeshPool::allocate(const std::size_t vertex_bytes, const std::s
         return 0;
     }
 
-    MeshBucket bucket = pick_mesh_bucket(vertex_bytes, index_bytes);
-    if (bucket == MeshBucket::Count) {
-        bucket = MeshBucket::B256K;
+    const MeshBucket bucket = pick_mesh_bucket(vertex_bytes, index_bytes);
+    if (bucket != MeshBucket::Count) {
+        const std::size_t bucket_vertex = mesh_bucket_vertex_capacity(bucket);
+        const std::size_t bucket_index = mesh_bucket_index_capacity(bucket);
+        if (vertex_bytes <= bucket_vertex && index_bytes <= bucket_index) {
+            const std::uint32_t slot_id = allocate_bucket(bucket);
+            if (slot_id != 0) {
+                return slot_id;
+            }
+        }
     }
 
-    return allocate_bucket(bucket);
+    return allocate_sized(vertex_bytes, index_bytes);
 }
 
 std::uint32_t GpuMeshPool::regrow(const std::uint32_t old_slot_id,
