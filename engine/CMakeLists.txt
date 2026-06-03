@@ -8,6 +8,7 @@ set(ENGINE_CORE_SOURCES
     world/ChunkStore.cpp
     world/ChunkLifecycle.cpp
     procgen/HeightmapWorldgen.cpp
+    procgen/TerrainGraph.cpp
     world/StreamingConfig.cpp
     world/StreamingSystem.cpp
     world/BlockLight.cpp
@@ -103,6 +104,7 @@ target_link_libraries(engine_core PUBLIC
     flecs_static
     enkiTS
     libzstd_static
+    FastNoise
 )
 if(DEFINED enkits_SOURCE_DIR)
     target_include_directories(engine_core PUBLIC ${enkits_SOURCE_DIR}/src)

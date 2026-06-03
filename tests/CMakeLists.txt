@@ -17,6 +17,7 @@ add_executable(engine_tests
     world/test_block_light.cpp
     world/test_chunk_unload_gpu.cpp
     procgen/test_heightmap_worldgen.cpp
+    procgen/test_terrain_graph.cpp
     gameplay/test_block_events.cpp
     physics/test_capsule_resolver.cpp
     persist/test_minimal_save.cpp

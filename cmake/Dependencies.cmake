@@ -116,6 +116,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(VulkanMemoryAllocator)
 
+# --- M10: FastNoise2 worldgen ---
+
+FetchContent_Declare(
+    FastNoise2
+    GIT_REPOSITORY https://github.com/Auburn/FastNoise2.git
+    GIT_TAG        v0.10.0-alpha
+    GIT_SHALLOW    TRUE
+)
+set(FASTNOISE2_NOISETOOL OFF CACHE BOOL "" FORCE)
+set(FASTNOISE2_TESTS OFF CACHE BOOL "" FORCE)
+set(FASTNOISE2_UTILITY OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(FastNoise2)
+
 # --- M8: zstd for ProductionSave (.vwr) ---
 
 FetchContent_Declare(
