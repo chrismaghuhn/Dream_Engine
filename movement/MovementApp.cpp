@@ -194,12 +194,26 @@ InputSnapshot MovementApp::poll_input() {
         last_cursor_y_ = cy;
     }
 
-    // LMB edge-trigger for attack (same latch pattern as jump).
-    const bool attack_now = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    if (attack_now && !attack_down_) {
-        snap.attack_pressed = true;
-    }
-    attack_down_ = attack_now;
+    auto edge_latch = [](bool now, bool& down, bool& latch) {
+        if (now && !down) latch = true;
+        if (!now)         latch = false;
+        down = now;
+    };
+
+    edge_latch(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)  == GLFW_PRESS,
+               attack_light_down_,   attack_light_latch_);
+    edge_latch(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS,
+               attack_heavy_down_,   attack_heavy_latch_);
+    edge_latch(glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS,
+               attack_kick_down_,    attack_kick_latch_);
+    edge_latch(glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS,
+               attack_special_down_, attack_special_latch_);
+
+    snap.attack_light   = attack_light_latch_;
+    snap.attack_heavy   = attack_heavy_latch_;
+    snap.attack_kick    = attack_kick_latch_;
+    snap.attack_special = attack_special_latch_;
+    snap.dodge_pressed  = snap.jump_pressed; // Space doubles as dodge during combat
 
     const bool save_now = glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS;
     if (save_now && !save_down_) {
@@ -384,12 +398,13 @@ void MovementApp::run() {
                 player_combat_.phase == engine::character::CombatPhase::Attacking ||
                 player_combat_.phase == engine::character::CombatPhase::Recovery;
 
-            if (player_char_handle_ >= 0 && !attack_table_.empty()) {
-                engine::character::combat_tick(
-                    player_combat_, *tf, player_anim_, input,
-                    attack_table_, player_asset_.clips,
-                    static_cast<float>(SimClock::fixed_dt));
-            }
+            // TODO Task 6: restore combat_tick call with InputBuffer& parameter
+            // if (player_char_handle_ >= 0 && !attack_table_.empty()) {
+            //     engine::character::combat_tick(
+            //         player_combat_, *tf, player_anim_, input,
+            //         attack_table_, player_asset_.clips,
+            //         static_cast<float>(SimClock::fixed_dt));
+            // }
 
             // Freeze horizontal movement while attacking (spec 4.4).
             if (is_attacking) {
@@ -493,11 +508,14 @@ void MovementApp::run() {
 
             ++sim_steps_last_frame_;
         });
-        // player_tick clears input.jump_pressed when the jump is consumed. Mirror
-        // that back into jump_latch_ so the request is not repeated next frame.
+        // Mirror consumed flags back into their latches.
         if (!input.jump_pressed) {
             jump_latch_ = false;
         }
+        if (!input.attack_light)   attack_light_latch_   = false;
+        if (!input.attack_heavy)   attack_heavy_latch_   = false;
+        if (!input.attack_kick)    attack_kick_latch_    = false;
+        if (!input.attack_special) attack_special_latch_ = false;
 
         const float alpha = static_cast<float>(sim_clock_.alpha());
         const glm::vec3 render_pos = lerp_position(tf->previous_position, tf->position, alpha);
@@ -537,10 +555,11 @@ void MovementApp::run() {
                 engine::character::AnimationController::sample_bone_matrices(
                     player_anim_, clip, player_asset_.mesh);
 
-            // Model matrix: interpolated position + yaw.
+            // Model matrix: position + yaw * GLB root transform (handles cm→m scale).
             glm::mat4 model = glm::mat4(1.f);
             model = glm::translate(model, render_pos);
             model = glm::rotate(model, render_yaw, glm::vec3(0.f, 1.f, 0.f));
+            model = model * player_asset_.node_transform;
 
             character_pass_.set_pose(player_char_handle_, slot, model, bone_mats);
         }
@@ -566,6 +585,7 @@ void MovementApp::run() {
                 glm::mat4 d_model = glm::mat4(1.f);
                 d_model = glm::translate(d_model, d_render_pos);
                 d_model = glm::rotate(d_model, d_render_yaw, glm::vec3(0.f, 1.f, 0.f));
+                d_model = d_model * dummy_asset_.node_transform;
 
                 character_pass_.set_pose(dummy_char_handle_, slot, d_model, dummy_bones);
             }

@@ -60,7 +60,10 @@ private:
     engine::character::AttackTable attack_table_;
     int player_char_handle_ = -1;
 
-    bool attack_down_ = false; // edge-trigger state for LMB
+    bool attack_light_down_   = false; bool attack_light_latch_   = false;
+    bool attack_heavy_down_   = false; bool attack_heavy_latch_   = false;
+    bool attack_kick_down_    = false; bool attack_kick_latch_    = false;
+    bool attack_special_down_ = false; bool attack_special_latch_ = false;
 
     // Training dummy.
     engine::character::CharacterAsset dummy_asset_;
