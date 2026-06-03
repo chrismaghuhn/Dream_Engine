@@ -12,6 +12,7 @@ set(ENGINE_CORE_SOURCES
     world/StreamingSystem.cpp
     world/GreedyMesher.cpp
     render/ThinTerrainPreview.cpp
+    render/StreamingTerrainSystem.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     Engine.cpp
@@ -37,6 +38,7 @@ set(ENGINE_RENDER_SOURCES
     render/HostMemory.cpp
     render/StagingRing.cpp
     render/Renderer.cpp
+    ui/UiHost.cpp
 )
 
 add_library(engine_render STATIC ${ENGINE_RENDER_SOURCES})
@@ -48,6 +50,7 @@ target_link_libraries(engine_render PUBLIC
     glm::glm
     volk
     Vulkan::Vulkan
+    imgui_lib
 )
 target_compile_definitions(engine_render PUBLIC
     ENGINE_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"

@@ -20,6 +20,7 @@
 namespace engine {
 
 class Platform;
+class UiHost;
 
 class Renderer {
 public:
@@ -39,10 +40,15 @@ public:
     [[nodiscard]] const GpuCaps& gpu_caps() const { return gpu_caps_; }
     [[nodiscard]] SnapshotRing& snapshot_ring() { return snapshot_ring_; }
     [[nodiscard]] GpuMeshPool& mesh_pool() { return mesh_pool_; }
+    [[nodiscard]] GpuDeferredFreeQueue& deferred_free_queue() { return deferred_free_; }
     [[nodiscard]] MeshUploadQueue& mesh_upload_queue() { return *mesh_upload_queue_; }
     [[nodiscard]] float aspect_ratio() const;
     [[nodiscard]] std::uint64_t frame_index() const { return frame_index_; }
+    [[nodiscard]] VulkanContext& vulkan_context() { return context_; }
+    [[nodiscard]] const VulkanContext& vulkan_context() const { return context_; }
+    [[nodiscard]] VkRenderPass render_pass() const { return render_pass_; }
 
+    void set_ui_host(UiHost* ui_host) { ui_host_ = ui_host; }
     void render_frame(std::uint32_t snapshot_slot);
 
 private:
@@ -90,6 +96,7 @@ private:
     FrameUniformStub frame_uniforms_{};
     MemoryBudget memory_budget_{};
     std::uint32_t frame_index_ = 0;
+    UiHost* ui_host_ = nullptr;
     bool initialized_ = false;
 };
 

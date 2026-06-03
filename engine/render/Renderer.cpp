@@ -2,6 +2,7 @@
 
 #include "engine/platform/Platform.hpp"
 #include "engine/render/VkCheck.hpp"
+#include "engine/ui/UiHost.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -261,6 +262,9 @@ void Renderer::record_frame(const std::uint32_t image_index, const std::uint32_t
     vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
     terrain_pass_.record(
         command_buffer, frame_index_, snapshot, mesh_pool_, context_.swapchain_extent());
+    if (ui_host_ != nullptr) {
+        ui_host_->render(command_buffer);
+    }
     vkCmdEndRenderPass(command_buffer);
     VK_CHECK(vkEndCommandBuffer(command_buffer));
 }
@@ -343,6 +347,10 @@ void Renderer::recreate_swapchain() {
                                 *per_frame_writes_)) {
             SPDLOG_ERROR("Failed to recreate terrain pass");
         }
+    }
+
+    if (ui_host_ != nullptr) {
+        ui_host_->on_swapchain_recreated(*this);
     }
 }
 

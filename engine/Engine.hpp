@@ -4,8 +4,12 @@
 #include "engine/core/JobSystem.hpp"
 #include "engine/platform/Input.hpp"
 #include "engine/platform/Platform.hpp"
+#include "engine/core/SimClock.hpp"
 #include "engine/render/ThinTerrainPreview.hpp"
+#include "engine/render/StreamingTerrainSystem.hpp"
 #include "engine/render/Renderer.hpp"
+#include "engine/ui/UiHost.hpp"
+#include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/OriginRebase.hpp"
 
@@ -41,9 +45,14 @@ private:
     Platform platform_{};
     Input input_{};
     Renderer renderer_{};
+    UiHost ui_host_{};
+    SimClock sim_clock_{};
+    std::uint64_t sim_tick_ = 0;
     OriginRebase origin_rebase_{};
     ChunkStore chunk_store_{};
     ThinTerrainPreview thin_terrain_{};
+    StreamingTerrainSystem streaming_terrain_{};
+    ChunkGpuServices chunk_gpu_services_{};
     flecs::world world_{};
     flecs::entity player_fly_{};
     std::uint64_t frame_index_ = 0;
