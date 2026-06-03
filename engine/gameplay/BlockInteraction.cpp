@@ -167,7 +167,8 @@ BlockMutationResult apply_block_mutation(
         return result;
     }
 
-    if (!store.write_block(mutation.pos, mutation.new_state)) {
+    std::vector<ChunkCoord> light_dirty_chunks{};
+    if (!store.write_block(mutation.pos, mutation.new_state, &light_dirty_chunks)) {
         return result;
     }
 
@@ -175,7 +176,9 @@ BlockMutationResult apply_block_mutation(
         chunk->flags |= CHUNK_MODIFIED_BY_PLAYER;
     }
 
-    mark_chunk_dirty(world, store, mutation.pos.chunk);
+    for (const ChunkCoord& coord : light_dirty_chunks) {
+        mark_chunk_dirty(world, store, coord);
+    }
 
     const bool breaking =
         is_solid(block_id(mutation.old_state)) && block_id(mutation.new_state) == BLOCK_AIR;

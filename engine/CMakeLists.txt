@@ -10,6 +10,7 @@ set(ENGINE_CORE_SOURCES
     procgen/HeightmapWorldgen.cpp
     world/StreamingConfig.cpp
     world/StreamingSystem.cpp
+    world/BlockLight.cpp
     world/GreedyMesher.cpp
     render/ThinTerrainPreview.cpp
     render/StreamingTerrainSystem.cpp

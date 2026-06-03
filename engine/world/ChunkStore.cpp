@@ -1,5 +1,7 @@
 #include "engine/world/ChunkStore.hpp"
 
+#include "engine/world/BlockLight.hpp"
+
 #include "engine/gameplay/BlockRegistry.hpp"
 
 namespace engine {
@@ -146,7 +148,8 @@ BlockState ChunkStore::read_block(BlockPos pos) const {
     return chunk->section_at(sec).read_block(blk.x, blk.y, blk.z);
 }
 
-bool ChunkStore::write_block(BlockPos pos, BlockState state) {
+bool ChunkStore::write_block(BlockPos pos, BlockState state,
+                             std::vector<ChunkCoord>* light_dirty_chunks) {
     Chunk* chunk = try_get(pos.chunk);
     if (!chunk) {
         return false;
@@ -165,6 +168,13 @@ bool ChunkStore::write_block(BlockPos pos, BlockState state) {
     const bool now_solid = is_solid(block_id(state));
     if (was_solid != now_solid) {
         section.occupancy.set(blk.x, blk.y, blk.z, now_solid);
+    }
+
+    BlockLightUpdateQueue light_queue{};
+    const std::vector<ChunkCoord> dirty =
+        on_block_light_block_changed(*this, light_queue, pos, old, state);
+    if (light_dirty_chunks != nullptr) {
+        *light_dirty_chunks = dirty;
     }
 
     return true;

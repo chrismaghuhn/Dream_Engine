@@ -65,7 +65,8 @@ public:
     void clear_entity_for(ChunkCoord coord);
 
     [[nodiscard]] BlockState read_block(BlockPos pos) const;
-    [[nodiscard]] bool write_block(BlockPos pos, BlockState state);
+    [[nodiscard]] bool write_block(BlockPos pos, BlockState state,
+                                   std::vector<ChunkCoord>* light_dirty_chunks = nullptr);
 
 private:
     uint32_t max_loaded_chunks_ = 0;
