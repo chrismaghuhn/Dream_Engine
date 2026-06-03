@@ -50,24 +50,35 @@ The existing combat system has several critical issues that make it feel unrespo
 
 ## FSM States
 
+`CombatPhase` has four values: `Idle`, `Startup`, `Active`, `Recovery`, `DodgeCancel`.  
+Hitstop is **not** a `CombatPhase` value — it overlays the current phase via three fields on `CombatController`:
+
+```cpp
+bool        hitstop_active       = false;
+CombatPhase phase_before_hitstop = CombatPhase::Idle;
+int         hitstop_frames       = 0;
+```
+
+When hitstop triggers: `phase_before_hitstop = phase; hitstop_active = true; hitstop_frames = 5`.  
+Each sim step: if `hitstop_active`, skip all FSM transitions and `clip_remaining` countdown, decrement `hitstop_frames`. When `hitstop_frames == 0`: `hitstop_active = false`, resume in `phase_before_hitstop`.
+
 ```
 Idle → Startup → Active → Recovery → Idle
-                   │
-            (hit lands)
-                   ↓
-               Hitstun  ──→ (back to Active or Recovery)
-                   
-Recovery (past dodge_cancel_start) + Space → DodgeCancel → Idle
+                              │
+             (past dodge_cancel_start_norm + Space)
+                              ↓
+                         DodgeCancel → Idle
+
+    ── hit lands anywhere in Active ──►  hitstop overlay (no phase change)
 ```
 
 | State | Description | Exit condition |
 |---|---|---|
 | `Idle` | No action | Buffer contains attack → `Startup` |
-| `Startup` | Pre-hit frames (animation wind-up) | Normalized clip time ≥ `hit_start` → `Active` |
-| `Active` | Hit window open; damage possible | Normalized clip time > `hit_end` → `Recovery` |
-| `Recovery` | End-lag; character committed | `clip_remaining ≤ 0` AND buffer has attack → next combo step; else → `Idle` |
-| `Hitstun` | Attacker freezes for N frames on successful hit | `hitstop_frames` countdown reaches 0 → previous state |
-| `DodgeCancel` | Early escape from `Recovery` via Space | 1 frame → `Idle` + dodge impulse applied |
+| `Startup` | Pre-hit frames (animation wind-up) | `norm_time ≥ hit_start_norm` → `Active` |
+| `Active` | Hit window open; damage possible | `norm_time > hit_end_norm` → `Recovery` |
+| `Recovery` | End-lag; character committed | `clip_remaining ≤ 0` AND buffer has same-chain attack → next combo step; else → `Idle` |
+| `DodgeCancel` | Early escape from `Recovery` | 1 frame → `Idle` + dodge impulse applied |
 
 **Key rule:** The combo does NOT auto-chain. Each step requires a fresh button press buffered during the previous `Active` or early `Recovery` window (`cancel_start` normalized time). No press in buffer → combo ends at `Recovery` → `Idle`.
 
@@ -128,7 +139,13 @@ struct AnimationState {
 
 **`AnimationController::tick`** — decrements `blend_weight` by `dt / blend_duration`; clamps to 0.
 
-**`AnimationController::sample_bone_matrices`** — when `blend_weight > 0`, samples both clips and `glm::mix`-interpolates the resulting bone matrices per bone.
+**`AnimationController::sample_bone_matrices`** — when `blend_weight > 0`, samples TRS channels from both clips separately, then blends at the pose level before building matrices:
+- Translation: `glm::mix(trans_a, trans_b, blend_weight)`
+- Rotation: `glm::slerp(rot_a, rot_b, blend_weight)`
+- Scale: `glm::mix(scale_a, scale_b, blend_weight)`
+- Then builds the bone matrix via `trs_matrix(t, r, s)` as usual.
+
+This avoids the visual artifacts (shearing, incorrect interpolation) that result from `glm::mix`-ing final 4×4 matrices directly, which is only correct for pure translation and breaks for rotation and scale.
 
 **Bug fix:** `combat_tick` no longer advances `anim.time_seconds`. The single call to `AnimationController::tick` in `MovementApp` is the sole owner of time advancement. During `Hitstun`, `anim.speed = 0` is set so `tick` advances nothing.
 
@@ -136,21 +153,23 @@ struct AnimationState {
 
 ## Attack Table Extensions
 
-`AttackDef` gains two new fields:
+All normalized fields use the `_norm` suffix (range [0, 1] relative to clip duration). The `recovery_seconds` field is in wall-clock seconds. This naming is enforced in both the struct and the `.txt` parser to prevent unit confusion at the implementation stage.
 
 ```cpp
 struct AttackDef {
     std::string id;
     std::string clip;
-    float hit_start          = 0.f;  // normalized clip time, hit window open
-    float hit_end            = 0.f;  // normalized clip time, hit window close
-    float range              = 0.f;
-    float radius             = 0.f;
-    float recovery           = 0.f;
-    float cancel_start       = 0.7f; // normalized time: input buffer accepted from here
-    float dodge_cancel_start = 0.6f; // normalized time: Space cancels into dodge from here
+    float hit_start_norm          = 0.f;   // normalized [0,1]: hit window opens
+    float hit_end_norm            = 0.f;   // normalized [0,1]: hit window closes
+    float range                   = 0.f;   // metres, hit capsule forward offset
+    float radius                  = 0.f;   // metres, hit capsule radius
+    float recovery_seconds        = 0.2f;  // seconds of end-lag after last combo hit
+    float cancel_start_norm       = 0.7f;  // normalized [0,1]: buffer accepts next input from here
+    float dodge_cancel_start_norm = 0.6f;  // normalized [0,1]: Space cancels into dodge from here
 };
 ```
+
+`cancel_start_norm` must be ≥ `hit_end_norm`. `dodge_cancel_start_norm` must be ≤ `cancel_start_norm`. The parser asserts these invariants on load.
 
 ---
 
@@ -175,8 +194,9 @@ Four combo chains accessed via four buttons. `CombatController` stores `active_c
 | LMB + RMB simultaneously | `Punch_Forward_with_Both_Fists` |
 | Hold LMB ≥ 0.4 s | `Charged_Upward_Slash` |
 
-**Variant pool** (random substitution within a chain for variety):  
-`Left_Short_Hook_from_Guard`, `Right_Upper_Hook_from_Guard`, `Left_Uppercut_from_Guard`, `Punch_Combo_1–5`, `Kung_Fu_Punch`, `Flying_Fist_Kick`, `Sweeping_Kick`, `Boxing_Guard_Prep_Straight_Punch`, `Boxing_Guard_Right_Straight_Kick`, `Boxing_Guard_Step_Knee_Strike`, `Lunge_Roundhouse_Kick`
+**Variant pool** (deferred — stabilise fixed chains first):  
+`Left_Short_Hook_from_Guard`, `Right_Upper_Hook_from_Guard`, `Left_Uppercut_from_Guard`, `Punch_Combo_1–5`, `Kung_Fu_Punch`, `Flying_Fist_Kick`, `Sweeping_Kick`, `Boxing_Guard_Prep_Straight_Punch`, `Boxing_Guard_Right_Straight_Kick`, `Boxing_Guard_Step_Knee_Strike`, `Lunge_Roundhouse_Kick`.  
+Random substitution within a chain is deferred. If added later, variant selection must use a seeded deterministic RNG and must not affect gameplay properties (hit windows, range, damage) — visual variation only.
 
 **Weapon slots** (deferred, assets already present):  
 `Right_Hand_Sword_Slash`, `Weapon_Combo_1`, `Weapon_Combo`, `Shield_Push_Left`
@@ -187,12 +207,20 @@ Total: ~34 of 38 animations mapped immediately; 4 are exact duplicates (`(1)` su
 
 ## Hitstop
 
+Hitstop is an overlay, not a `CombatPhase`. `CombatController` carries:
+
+```cpp
+bool        hitstop_active       = false;
+CombatPhase phase_before_hitstop = CombatPhase::Idle;
+int         hitstop_frames       = 0;
+```
+
 On a successful hit:
-1. `player_combat_.hitstop_frames = 5` is set.
-2. FSM enters `Hitstun` sub-state (stored as `hitstop_active = true`, no new `CombatPhase` value needed — it overlays the current phase).
-3. While `hitstop_active`: `anim.speed = 0` for both attacker and target; `clip_remaining` countdown paused.
-4. Each sim step decrements `hitstop_frames`; when it reaches 0, `hitstop_active = false`, `anim.speed = 1`.
-5. The target's `HitReact` knockback begins only *after* hitstop ends.
+1. `phase_before_hitstop = combat.phase; hitstop_active = true; hitstop_frames = 5`.
+2. `anim.speed = 0` for both attacker and target (time advancement stops because `AnimationController::tick` multiplies by `speed`).
+3. `clip_remaining` countdown is paused (not decremented while `hitstop_active`).
+4. Each sim step while `hitstop_active`: decrement `hitstop_frames`. When `hitstop_frames == 0`: `hitstop_active = false; combat.phase = phase_before_hitstop; anim.speed = 1`.
+5. The target's `HitReact` knockback begins only after hitstop ends (`hit_react_tick` checks `!hitstop_active` on the target).
 
 ---
 
@@ -216,21 +244,25 @@ In `camera::view_matrix`: when `shake.timer > 0`, add a small random offset to t
 
 ## Data Flow (per sim step)
 
+The ordering rule is: **advance time first, then read normalized time for FSM and hit detection within the same step.** This ensures `combat_tick` and `try_hit_in_window` always agree on the current clip position and never drift by one frame.
+
 ```
 poll_input()
     → InputSnapshot (4 attack bools, movement, sprint, space)
     → push rising edges into InputBuffer
 
 sim step:
-    InputBuffer::tick()          // decrement TTLs
-    combat_tick()                // reads buffer, drives FSM, sets anim clip via crossfade_to
-    player_tick()                // movement (frozen if not Idle)
-    AnimationController::tick()  // SOLE owner of time advancement; respects anim.speed
-    try_hit_in_window()          // hit detection
-    → on hit: trigger_hit_react(), apply_screenshake(), set hitstop_frames
-    hit_react_tick()             // knockback (skipped during hitstop)
-    AnimationController::tick() for dummy
+    1. InputBuffer::tick()           // decrement TTLs, expire stale inputs
+    2. AnimationController::tick()   // SOLE owner of time advancement; respects anim.speed=0 during hitstop
+    3. combat_tick()                 // reads current norm_time, drives FSM transitions, crossfade_to on clip change
+    4. player_tick()                 // movement (input frozen if phase != Idle)
+    5. try_hit_in_window()           // hit detection — uses same norm_time as step 3
+       → on hit: set hitstop_active, trigger_hit_react(), apply_screenshake()
+    6. hit_react_tick()              // knockback translation (skipped if hitstop_active)
+    7. AnimationController::tick() for dummy
 ```
+
+`combat_tick` must not touch `anim.time_seconds` or `anim.speed` directly except for setting `speed = 0` when activating hitstop and restoring `speed = 1` when hitstop ends.
 
 ---
 
