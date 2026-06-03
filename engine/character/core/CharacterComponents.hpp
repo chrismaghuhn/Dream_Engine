@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/character/core/InputBuffer.hpp"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -18,18 +20,36 @@ struct AnimationState {
     float time_seconds = 0.f;
     float speed = 1.f;
     bool looping = true;
+
+    // Blend-out slot: previous clip fading to 0.
+    std::string blend_clip;
+    float blend_time = 0.f;
+    float blend_weight = 0.f;
+    float blend_duration = 0.12f;
 };
 
-enum class CombatPhase { Idle, Attacking, Recovery };
+// Startup: pre-hit wind-up frames (norm_time < hit_start_norm).
+// Active: hit window open (hit_start_norm <= norm_time <= hit_end_norm).
+// Recovery: committed end-lag after the active window.
+// DodgeCancel: one-frame state, applies dodge impulse then returns to Idle.
+enum class CombatPhase { Idle, Startup, Active, Recovery, DodgeCancel };
 
 struct CombatController {
     CombatPhase phase = CombatPhase::Idle;
     int combo_index = 0;
     std::vector<std::string> combo_ids;
+    BufferedInput::Kind active_kind = BufferedInput::Kind::None;
+
     float attack_yaw = 0.f;
-    float clip_remaining = 0.f;      // countdown to end of current attack clip
-    float recovery_remaining = 0.f;  // countdown for Recovery phase
     bool hit_consumed = false;
+
+    // Hitstop overlay (not a CombatPhase value).
+    bool hitstop_active = false;
+    CombatPhase phase_before_hitstop = CombatPhase::Idle;
+    int hitstop_frames = 0;
+
+    // Set true for one frame by DodgeCancel; MovementApp reads and clears it.
+    bool dodge_requested = false;
 };
 
 struct HitReact {
