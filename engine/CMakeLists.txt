@@ -10,6 +10,7 @@ set(ENGINE_CORE_SOURCES
     procgen/HeightmapWorldgen.cpp
     world/StreamingConfig.cpp
     world/StreamingSystem.cpp
+    world/GreedyMesher.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     Engine.cpp

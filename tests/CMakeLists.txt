@@ -13,6 +13,7 @@ add_executable(engine_tests
     world/test_occupancy.cpp
     world/test_chunk_lifecycle.cpp
     world/test_streaming.cpp
+    world/test_greedy_mesher.cpp
     procgen/test_heightmap_worldgen.cpp
     render/test_snapshot_ring.cpp
 )
