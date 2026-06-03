@@ -40,7 +40,10 @@ glm::mat4 Camera::view_matrix() const {
 }
 
 glm::mat4 Camera::projection_matrix(float aspect_ratio) const {
-    return glm::perspective(to_radians(fov_y_deg), aspect_ratio, near_plane, far_plane);
+    glm::mat4 proj = glm::perspective(to_radians(fov_y_deg), aspect_ratio, near_plane, far_plane);
+    // Vulkan NDC has inverted Y vs OpenGL-style glm::perspective output.
+    proj[1][1] *= -1.f;
+    return proj;
 }
 
 } // namespace engine

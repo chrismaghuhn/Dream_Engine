@@ -35,6 +35,11 @@ public:
     void bootstrap_existing_chunks(ChunkStore& store);
 
     [[nodiscard]] std::size_t count_mesh_ready_sections() const;
+    [[nodiscard]] std::size_t count_gpu_ready_sections() const;
+    [[nodiscard]] int count_pending_mesh_jobs() const;
+
+    /// Block until nearby section meshes are ready (startup / save load).
+    void warmup_meshes_near_focus(JobSystem& jobs, const glm::vec3& focus_world, std::size_t min_sections);
 
 private:
     struct SectionMeshState {
@@ -78,7 +83,6 @@ private:
     void queue_uploads(MeshUploadQueue& upload_queue);
     void sync_entity_mesh_slots(ChunkCoord coord, const ChunkMeshState& state);
     void process_mesh_backlog();
-    [[nodiscard]] int count_pending_mesh_jobs() const;
 
     static constexpr int kMaxPendingMeshJobs = 256;
     static constexpr int kMaxGpuAllocationsPerFrame = 64;

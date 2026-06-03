@@ -285,6 +285,9 @@ void UiHost::new_frame(const UiOverlayStats& stats, UiInventoryState& inventory_
         ImGui::Text("Sim tick: %llu", static_cast<unsigned long long>(stats.sim_tick));
         ImGui::Text("Loaded chunks: %u", stats.loaded_chunks);
         ImGui::Text("Draw sections: %u", stats.draw_sections);
+        ImGui::Text("Mesh ready: %u", stats.mesh_ready_sections);
+        ImGui::Text("GPU ready: %u", stats.gpu_ready_sections);
+        ImGui::Text("Mesh jobs pending: %d", stats.pending_mesh_jobs);
     }
     ImGui::End();
 

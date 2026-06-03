@@ -41,6 +41,7 @@ void StreamingTerrainSystem::init(
 void StreamingTerrainSystem::register_observers(flecs::world& world) {
     world.observer()
         .event<EvtChunkLoaded>()
+        .with<ChunkCoord>()
         .run([this](flecs::iter& it) {
             while (it.next()) {
                 const EvtChunkLoaded* evt = it.param<EvtChunkLoaded>();
@@ -52,6 +53,7 @@ void StreamingTerrainSystem::register_observers(flecs::world& world) {
 
     world.observer()
         .event<EvtChunkUnloaded>()
+        .with<ChunkCoord>()
         .run([this](flecs::iter& it) {
             while (it.next()) {
                 const EvtChunkUnloaded* evt = it.param<EvtChunkUnloaded>();
@@ -314,16 +316,6 @@ void StreamingTerrainSystem::sync_entity_mesh_slots(const ChunkCoord coord, cons
     entity.set<ChunkMeshSlots>(slots);
 }
 
-namespace {
-
-[[nodiscard]] float chunk_distance_sq(ChunkCoord coord, const glm::vec3& focus_world) {
-    const glm::vec3 chunk_center = glm::vec3(coord) * 32.f + glm::vec3(16.f);
-    const glm::vec3 delta = chunk_center - focus_world;
-    return glm::dot(delta, delta);
-}
-
-} // namespace
-
 std::size_t StreamingTerrainSystem::count_mesh_ready_sections() const {
     std::size_t count = 0;
     for (const auto& [coord, chunk_state] : chunk_meshes_) {
@@ -342,9 +334,36 @@ void StreamingTerrainSystem::bootstrap_existing_chunks(ChunkStore& store) {
     store.for_each_loaded([&](const ChunkCoord coord) {
         if (!store.is_pending_unload(coord)) {
             refresh_chunk_section_borders(store, coord);
+            on_chunk_loaded(coord);
         }
     });
     process_mesh_backlog();
+}
+
+void StreamingTerrainSystem::warmup_meshes_near_focus(
+    JobSystem& jobs, const glm::vec3& focus_world, const std::size_t min_sections) {
+    focus_world_ = focus_world;
+    process_mesh_backlog();
+
+    for (int attempt = 0; attempt < 400 && count_mesh_ready_sections() < min_sections; ++attempt) {
+        jobs.wait_meshing();
+        drain_mesh_completions();
+        process_mesh_backlog();
+    }
+}
+
+std::size_t StreamingTerrainSystem::count_gpu_ready_sections() const {
+    std::size_t count = 0;
+    for (const auto& [coord, chunk_state] : chunk_meshes_) {
+        (void)coord;
+        for (const SectionMeshState& section_state : chunk_state.sections) {
+            if (section_state.mesh_ready && section_state.opaque_gpu_allocated &&
+                section_state.opaque_gpu_slot_id != 0 && section_state.opaque_index_count > 0) {
+                ++count;
+            }
+        }
+    }
+    return count;
 }
 
 void StreamingTerrainSystem::process_mesh_backlog() {
@@ -430,11 +449,18 @@ void StreamingTerrainSystem::build_snapshot(
             const glm::vec3 cull_min = model_translation;
             const glm::vec3 cull_max = model_translation + glm::vec3(16.f);
 
+            const glm::vec3 section_center_world = chunk_origin_world + section_offset + glm::vec3(8.f);
+            const glm::vec3 delta = section_center_world - focus_world_;
+            constexpr float kMaxDrawDistance = 384.f;
+            if (glm::dot(delta, delta) > kMaxDrawDistance * kMaxDrawDistance) {
+                continue;
+            }
+
             if (!aabb_intersects_frustum(frustum_planes, cull_min, cull_max)) {
                 continue;
             }
 
-            if (section_state.mesh_ready && section_state.opaque_upload_queued &&
+            if (section_state.mesh_ready && section_state.opaque_gpu_allocated &&
                 section_state.opaque_gpu_slot_id != 0 && section_state.opaque_index_count > 0) {
                 culled_opaque_sections_.push_back(DrawSection{
                     .coord = coord,
@@ -449,7 +475,7 @@ void StreamingTerrainSystem::build_snapshot(
                 });
             }
 
-            if (section_state.mesh_ready && section_state.water_upload_queued &&
+            if (section_state.mesh_ready && section_state.water_gpu_allocated &&
                 section_state.water_gpu_slot_id != 0 && section_state.water_index_count > 0) {
                 culled_water_sections_.push_back(DrawSection{
                     .coord = coord,

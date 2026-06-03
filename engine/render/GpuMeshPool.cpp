@@ -211,9 +211,9 @@ std::uint32_t GpuMeshPool::allocate(const std::size_t vertex_bytes, const std::s
         return 0;
     }
 
-    const MeshBucket bucket = pick_mesh_bucket(vertex_bytes, index_bytes);
+    MeshBucket bucket = pick_mesh_bucket(vertex_bytes, index_bytes);
     if (bucket == MeshBucket::Count) {
-        return 0;
+        bucket = MeshBucket::B256K;
     }
 
     return allocate_bucket(bucket);

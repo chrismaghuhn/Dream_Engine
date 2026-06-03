@@ -143,6 +143,13 @@ bool Engine::startup() {
         streaming_terrain_.init(world_, chunk_store_, jobs_, config_.world());
         streaming_terrain_.register_observers(world_);
         streaming_terrain_.bootstrap_existing_chunks(chunk_store_);
+        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            streaming_terrain_.warmup_meshes_near_focus(
+                jobs_, camera_component->camera.position, 4);
+            SPDLOG_INFO(
+                "Terrain mesh warmup: {} mesh-ready sections",
+                streaming_terrain_.count_mesh_ready_sections());
+        }
         SPDLOG_INFO("Terrain render mode: streaming multi-chunk");
     }
     SPDLOG_INFO(
@@ -363,6 +370,10 @@ void Engine::run() {
         sim_clock_.advance(frame_delta);
         sim_tick_ += sim_clock_.step([this]() { tick_player_simulation(); });
 
+        if (!config_.thin_terrain_preview() && frame_index_ % 30 == 0) {
+            jobs_.wait_meshing();
+        }
+
         if (auto* camera_component = player_fly_.get<CameraComponent>()) {
             debris_.tick(world_, camera_component->camera.position);
         }
@@ -457,6 +468,15 @@ void Engine::run() {
         const WorldRenderSnapshot& snapshot = renderer_.snapshot_ring().snapshot(snapshot_slot);
         const std::uint32_t draw_sections =
             static_cast<std::uint32_t>(snapshot.opaque_sections.size() + snapshot.water_sections.size());
+        const std::uint32_t mesh_ready_sections = config_.thin_terrain_preview()
+            ? 0
+            : static_cast<std::uint32_t>(streaming_terrain_.count_mesh_ready_sections());
+        const std::uint32_t gpu_ready_sections = config_.thin_terrain_preview()
+            ? 0
+            : static_cast<std::uint32_t>(streaming_terrain_.count_gpu_ready_sections());
+        const std::uint32_t pending_mesh_jobs = config_.thin_terrain_preview()
+            ? 0
+            : static_cast<std::uint32_t>(streaming_terrain_.count_pending_mesh_jobs());
 
         UiInventoryState inventory_ui{
             .inventory = &inventory_,
@@ -468,6 +488,9 @@ void Engine::run() {
                 .sim_tick = sim_tick_,
                 .loaded_chunks = chunk_store_.loaded_count(),
                 .draw_sections = draw_sections,
+                .mesh_ready_sections = mesh_ready_sections,
+                .gpu_ready_sections = gpu_ready_sections,
+                .pending_mesh_jobs = pending_mesh_jobs,
             },
             inventory_ui);
         inventory_open_ = inventory_ui.inventory_open;

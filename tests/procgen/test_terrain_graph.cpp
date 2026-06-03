@@ -3,6 +3,12 @@
 #include "engine/gameplay/BlockRegistry.hpp"
 #include "engine/procgen/TerrainGraph.hpp"
 #include "engine/world/Chunk.hpp"
+#include "engine/world/ChunkLifecycle.hpp"
+#include "engine/world/ChunkStore.hpp"
+#include "engine/world/GreedyMesher.hpp"
+#include "engine/world/WorldModule.hpp"
+
+#include <flecs.h>
 
 TEST_CASE("terrain graph deterministic for seed") {
     constexpr uint64_t seed = 42;
@@ -82,4 +88,39 @@ TEST_CASE("terrain graph assigns biomes") {
     REQUIRE(first == second);
     REQUIRE(static_cast<int>(first) >= 0);
     REQUIRE(static_cast<int>(distant) >= 0);
+}
+
+TEST_CASE("terrain chunk meshes after border refresh") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(8);
+
+    const engine::WorldConfig world_config{};
+    const engine::ChunkCoord coord{0, 2, 0};
+    engine::load_chunk(world, store, coord, world_config);
+
+    const engine::Chunk* chunk = store.try_get(coord);
+    REQUIRE(chunk != nullptr);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<std::uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<std::uint32_t> water_indices;
+
+    bool any_opaque = false;
+    for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
+        const engine::MeshSectionResult result = engine::mesh_section(
+            chunk->sections[section_index],
+            opaque_vertices,
+            opaque_indices,
+            water_vertices,
+            water_indices);
+        if (result.opaque_index_count > 0) {
+            any_opaque = true;
+        }
+    }
+
+    REQUIRE(any_opaque);
 }
