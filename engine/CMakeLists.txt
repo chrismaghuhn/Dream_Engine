@@ -5,6 +5,7 @@ set(ENGINE_CORE_SOURCES
     core/JobSystem.cpp
     world/WorldModule.cpp
     world/OriginRebase.cpp
+    world/ChunkStore.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     Engine.cpp

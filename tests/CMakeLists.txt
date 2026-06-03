@@ -9,6 +9,8 @@ add_executable(engine_tests
     world/test_world_config.cpp
     world/test_world_events.cpp
     world/test_origin_rebase.cpp
+    world/test_palette.cpp
+    world/test_occupancy.cpp
     render/test_snapshot_ring.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine_core Catch2::Catch2WithMain)
