@@ -57,7 +57,8 @@ void apply_streaming_toml_overrides(
     StreamingConfig& streaming,
     int horizontal_override,
     int vertical_override,
-    int max_chunks_override) {
+    int max_chunks_override,
+    int load_budget_override) {
     if (horizontal_override > 0) {
         streaming.horizontal_radius_chunks = horizontal_override;
     }
@@ -66,6 +67,9 @@ void apply_streaming_toml_overrides(
     }
     if (max_chunks_override > 0) {
         streaming.max_loaded_chunks = max_chunks_override;
+    }
+    if (load_budget_override > 0) {
+        streaming.max_chunks_load_per_update = load_budget_override;
     }
 }
 
@@ -154,6 +158,8 @@ void EngineConfig::load_toml(const std::string& path) {
                 read_int_or_default(*streaming, "vertical_radius_chunks", 0);
             streaming_max_chunks_override_ =
                 read_int_or_default(*streaming, "max_loaded_chunks", 0);
+            streaming_load_budget_override_ =
+                read_int_or_default(*streaming, "max_chunks_load_per_update", 0);
         }
     }
 
@@ -188,7 +194,8 @@ void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
         streaming_,
         streaming_horizontal_override_,
         streaming_vertical_override_,
-        streaming_max_chunks_override_);
+        streaming_max_chunks_override_,
+        streaming_load_budget_override_);
     destruction_ = destruction_config_from_hardware(cpu);
     if (destruction_max_active_debris_override_ > 0) {
         destruction_.max_active_debris = destruction_max_active_debris_override_;
@@ -210,7 +217,8 @@ void EngineConfig::finalize_gpu(const GpuCaps& gpu, RenderPreset preset) {
         streaming_,
         streaming_horizontal_override_,
         streaming_vertical_override_,
-        streaming_max_chunks_override_);
+        streaming_max_chunks_override_,
+        streaming_load_budget_override_);
 }
 
 int EngineConfig::occlusion_grid_radius_chunks() const {

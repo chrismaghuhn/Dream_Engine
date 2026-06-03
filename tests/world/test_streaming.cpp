@@ -101,3 +101,42 @@ TEST_CASE("streaming uses floor_div for negative world blocks") {
     engine::update_streaming(store, world, streaming, world_config, pos);
     REQUIRE(store.try_get(pos.chunk) != nullptr);
 }
+
+TEST_CASE("update_streaming respects max_chunks_load_per_update") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(20000);
+
+    engine::StreamingConfig streaming{};
+    streaming.max_loaded_chunks = 20000;
+    streaming.horizontal_radius_chunks = 12;
+    streaming.vertical_radius_chunks = 1;
+    streaming.max_chunks_load_per_update = 7;
+
+    const engine::WorldConfig world_config = test_world_config();
+    const engine::ChunkCoord player{0, 0, 0};
+
+    engine::update_streaming(store, world, streaming, world_config, player);
+    REQUIRE(store.loaded_count() == 7);
+
+    engine::update_streaming(store, world, streaming, world_config, player);
+    REQUIRE(store.loaded_count() > 7);
+}
+
+TEST_CASE("load_spawn_neighborhood loads 3x3x3 without full streaming radius") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(64);
+
+    const engine::WorldConfig world_config = test_world_config();
+    const engine::ChunkCoord spawn{0, 0, 0};
+
+    engine::load_spawn_neighborhood(store, world, world_config, spawn);
+    REQUIRE(store.try_get(spawn) != nullptr);
+    REQUIRE(store.try_get(engine::ChunkCoord{1, 0, 0}) != nullptr);
+    REQUIRE(store.try_get(engine::ChunkCoord{12, 0, 0}) == nullptr);
+}

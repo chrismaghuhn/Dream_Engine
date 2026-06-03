@@ -26,6 +26,31 @@ bool chunk_in_streaming_set(
     return dy >= -streaming.vertical_radius_chunks && dy <= streaming.vertical_radius_chunks;
 }
 
+void load_spawn_neighborhood(
+    ChunkStore& store,
+    flecs::world& ecs,
+    const WorldConfig& world_config,
+    ChunkCoord spawn_chunk) {
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dz = -1; dz <= 1; ++dz) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                const ChunkCoord coord{
+                    spawn_chunk.x + dx,
+                    spawn_chunk.y + dy,
+                    spawn_chunk.z + dz,
+                };
+                if (coord.y < world_config.chunk_height_min ||
+                    coord.y > world_config.chunk_height_max) {
+                    continue;
+                }
+                if (store.try_get(coord) == nullptr) {
+                    load_chunk(ecs, store, coord, world_config);
+                }
+            }
+        }
+    }
+}
+
 void update_streaming(
     ChunkStore& store,
     flecs::world& ecs,
@@ -38,8 +63,12 @@ void update_streaming(
     const int cy_max =
         std::min(world_config.chunk_height_max, player_chunk.y + streaming.vertical_radius_chunks);
 
-    for (int cy = cy_min; cy <= cy_max; ++cy) {
-        for (int cx = player_chunk.x - r; cx <= player_chunk.x + r; ++cx) {
+    const int load_budget = streaming.max_chunks_load_per_update;
+    int loaded_this_update = 0;
+    bool load_budget_exhausted = false;
+
+    for (int cy = cy_min; cy <= cy_max && !load_budget_exhausted; ++cy) {
+        for (int cx = player_chunk.x - r; cx <= player_chunk.x + r && !load_budget_exhausted; ++cx) {
             for (int cz = player_chunk.z - r; cz <= player_chunk.z + r; ++cz) {
                 const ChunkCoord coord{cx, cy, cz};
                 if (!chunk_in_streaming_set(coord, player_chunk, streaming, world_config)) {
@@ -47,6 +76,11 @@ void update_streaming(
                 }
                 if (store.try_get(coord) == nullptr) {
                     load_chunk(ecs, store, coord, world_config);
+                    ++loaded_this_update;
+                    if (load_budget > 0 && loaded_this_update >= load_budget) {
+                        load_budget_exhausted = true;
+                        break;
+                    }
                 }
             }
         }

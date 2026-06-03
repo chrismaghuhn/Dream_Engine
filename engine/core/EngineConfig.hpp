@@ -61,6 +61,7 @@ private:
     int streaming_horizontal_override_ = 0;
     int streaming_vertical_override_ = 0;
     int streaming_max_chunks_override_ = 0;
+    int streaming_load_budget_override_ = 0;
     bool thin_terrain_preview_ = false;
     bool creative_place_ = false;
     CpuHardware cpu_{};

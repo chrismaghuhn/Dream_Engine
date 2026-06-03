@@ -249,10 +249,7 @@ void Engine::refresh_spawn_gate() {
         const Capsule capsule = player_capsule();
         const glm::ivec3 world_blocks = glm::ivec3(glm::floor(camera_component->camera.position));
         const ChunkCoord spawn_chunk = block_to_chunk(world_blocks.x, world_blocks.y, world_blocks.z);
-        const WorldPosition player_pos = WorldPosition::from_world_blocks(
-            world_blocks.x, world_blocks.y, world_blocks.z);
-        update_streaming(
-            chunk_store_, world_, config_.streaming(), config_.world(), player_pos);
+        load_spawn_neighborhood(chunk_store_, world_, config_.world(), spawn_chunk);
         (void)spawn_gate_.update(chunk_store_, capsule, spawn_chunk);
     }
 }

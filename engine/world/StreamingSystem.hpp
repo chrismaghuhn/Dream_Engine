@@ -29,4 +29,11 @@ void update_streaming(
     const WorldConfig& world_config,
     const WorldPosition& player);
 
+/// Loads the 3×3×3 chunk neighborhood required by `PlayerSpawnReadyGate` (no full streaming radius).
+void load_spawn_neighborhood(
+    ChunkStore& store,
+    flecs::world& ecs,
+    const WorldConfig& world_config,
+    ChunkCoord spawn_chunk);
+
 } // namespace engine

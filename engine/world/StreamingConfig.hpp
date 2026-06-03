@@ -11,6 +11,8 @@ struct StreamingConfig {
     int max_loaded_chunks = 0;
     int horizontal_radius_chunks = 4;
     int vertical_radius_chunks = 2;
+    /// Max chunks to generate per `update_streaming` call (0 = unlimited). Prevents main-thread stalls.
+    int max_chunks_load_per_update = 48;
 };
 
 StreamingConfig streaming_config_from_hardware(

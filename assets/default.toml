@@ -7,6 +7,10 @@ worker = 0
 io = 0
 meshing = 0
 
+[engine.streaming]
+# Max chunks generated per frame (0 = unlimited; causes long freezes at startup)
+max_chunks_load_per_update = 48
+
 [engine.destruction]
 # 0 = auto from RAM in finalize_cpu
 max_active_debris = 0
