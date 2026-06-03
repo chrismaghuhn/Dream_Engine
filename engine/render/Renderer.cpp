@@ -7,6 +7,8 @@
 
 #include <array>
 
+#include <glm/glm.hpp>
+
 namespace engine {
 
 namespace {
@@ -85,7 +87,20 @@ void Renderer::shutdown() {
     initialized_ = false;
 }
 
-void Renderer::render_frame() {
+float Renderer::aspect_ratio() const {
+    if (!context_.has_valid_extent()) {
+        return 16.f / 9.f;
+    }
+
+    const VkExtent2D extent = context_.swapchain_extent();
+    if (extent.height == 0) {
+        return 16.f / 9.f;
+    }
+
+    return static_cast<float>(extent.width) / static_cast<float>(extent.height);
+}
+
+void Renderer::render_frame(std::uint32_t snapshot_slot) {
     if (!initialized_) {
         return;
     }
@@ -94,7 +109,10 @@ void Renderer::render_frame() {
         return;
     }
 
-    const std::uint32_t snapshot_slot = snapshot_ring_.pick_write_slot();
+    const WorldRenderSnapshot& snapshot = snapshot_ring_.snapshot(snapshot_slot);
+    frame_uniforms_.view = snapshot.view;
+    frame_uniforms_.proj = snapshot.proj;
+    frame_uniforms_.render_origin = snapshot.render_origin;
 
     std::uint32_t image_index = 0;
     if (!begin_frame(image_index)) {

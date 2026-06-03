@@ -7,7 +7,8 @@ namespace engine {
 SnapshotRing::SnapshotRing(std::uint32_t frames_in_flight)
     : slot_count_(snapshot_count(frames_in_flight))
     , snapshot_fences_(slot_count_, VK_NULL_HANDLE)
-    , slot_signaled_(slot_count_, true) {}
+    , slot_signaled_(slot_count_, true)
+    , snapshots_(slot_count_) {}
 
 SnapshotRing::~SnapshotRing() {
     shutdown();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/render/WorldRenderSnapshot.hpp"
+
 #include <cassert>
 #include <cstdint>
 #include <vector>
@@ -25,6 +27,10 @@ public:
 
     [[nodiscard]] std::uint32_t slot_count() const { return slot_count_; }
     [[nodiscard]] VkFence fence(std::uint32_t slot) const { return snapshot_fences_[slot]; }
+    [[nodiscard]] WorldRenderSnapshot& snapshot(std::uint32_t slot) { return snapshots_[slot]; }
+    [[nodiscard]] const WorldRenderSnapshot& snapshot(std::uint32_t slot) const {
+        return snapshots_[slot];
+    }
 
     [[nodiscard]] std::uint32_t pick_write_slot() const {
         for (std::uint32_t slot = 0; slot < slot_count_; ++slot) {
@@ -62,6 +68,7 @@ private:
     std::uint32_t slot_count_;
     std::vector<VkFence> snapshot_fences_;
     std::vector<bool> slot_signaled_;
+    std::vector<WorldRenderSnapshot> snapshots_;
 };
 
 } // namespace engine

@@ -3,6 +3,7 @@
 #include "engine/core/CrashHandlerWin32.hpp"
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/Log.hpp"
+#include "engine/gameplay/CameraSystem.hpp"
 #include "engine/world/WorldModule.hpp"
 
 #include <spdlog/spdlog.h>
@@ -48,6 +49,8 @@ bool Engine::startup() {
     // Step 6: Flecs world + world events module
     world_ = flecs::world();
     world_.import<WorldModule>();
+    CameraSystem::register_module(world_);
+    player_fly_ = CameraSystem::spawn_player_fly(world_);
 
     // Step 7: JobSystem
     jobs_.init(config_.threads());
@@ -59,6 +62,8 @@ bool Engine::startup() {
         world_ = flecs::world{};
         return false;
     }
+
+    input_.set_cursor_captured(platform_.window(), true);
 
     // Step 9: Renderer (Vulkan instance/device/swapchain) -> GpuCaps
     if (!renderer_.init(platform_)) {
@@ -89,6 +94,7 @@ void Engine::shutdown() {
     renderer_.shutdown();
     platform_.shutdown();
     jobs_.shutdown();
+    player_fly_ = flecs::entity{};
     world_ = flecs::world{};
     config_ = EngineConfig{};
 
@@ -98,10 +104,33 @@ void Engine::shutdown() {
     started_ = false;
 }
 
+void Engine::render_build(std::uint32_t snapshot_slot) {
+    auto* camera_component = player_fly_.get_mut<CameraComponent>();
+    if (!camera_component) {
+        return;
+    }
+
+    const float aspect_ratio = renderer_.aspect_ratio();
+    WorldRenderSnapshot& snapshot = renderer_.snapshot_ring().snapshot(snapshot_slot);
+    CameraSystem::build_render_snapshot(
+        *camera_component, origin_rebase_.render_origin(), aspect_ratio, snapshot, frame_index_);
+}
+
 void Engine::run() {
     while (!should_close()) {
         platform_.poll();
-        renderer_.render_frame();
+        input_.begin_frame(platform_.window());
+
+        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
+            origin_rebase_.maybe_rebase(
+                world_, camera_component->camera.position, config_.world());
+        }
+
+        const std::uint32_t snapshot_slot = renderer_.snapshot_ring().pick_write_slot();
+        render_build(snapshot_slot);
+        renderer_.render_frame(snapshot_slot);
+        ++frame_index_;
     }
 }
 

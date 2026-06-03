@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace engine {
@@ -29,10 +30,17 @@ public:
     [[nodiscard]] bool initialized() const { return initialized_; }
     [[nodiscard]] const GpuCaps& gpu_caps() const { return gpu_caps_; }
     [[nodiscard]] SnapshotRing& snapshot_ring() { return snapshot_ring_; }
+    [[nodiscard]] float aspect_ratio() const;
 
-    void render_frame();
+    void render_frame(std::uint32_t snapshot_slot);
 
 private:
+    struct FrameUniformStub {
+        glm::mat4 view{1.f};
+        glm::mat4 proj{1.f};
+        glm::vec3 render_origin{0.f};
+    };
+
     bool create_render_pass();
     bool create_framebuffers();
     bool create_command_pool_and_buffers();
@@ -57,6 +65,7 @@ private:
     std::vector<VkSemaphore> render_finished_semaphores_;
 
     GpuCaps gpu_caps_{};
+    FrameUniformStub frame_uniforms_{};
     std::uint32_t frame_index_ = 0;
     bool initialized_ = false;
 };

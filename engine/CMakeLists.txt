@@ -5,6 +5,8 @@ set(ENGINE_CORE_SOURCES
     core/JobSystem.cpp
     world/WorldModule.cpp
     world/OriginRebase.cpp
+    gameplay/Camera.cpp
+    gameplay/CameraSystem.cpp
     Engine.cpp
 )
 
@@ -12,7 +14,7 @@ if(WIN32)
     list(APPEND ENGINE_CORE_SOURCES core/CrashHandlerWin32.cpp)
 endif()
 
-add_library(engine_platform STATIC platform/Platform.cpp)
+add_library(engine_platform STATIC platform/Platform.cpp platform/Input.cpp)
 target_include_directories(engine_platform PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(engine_platform PUBLIC glfw)
 
@@ -29,6 +31,7 @@ target_compile_definitions(engine_render PUBLIC VK_NO_PROTOTYPES)
 target_link_libraries(engine_render PUBLIC
     engine_platform
     spdlog::spdlog
+    glm::glm
     volk
     Vulkan::Vulkan
 )
