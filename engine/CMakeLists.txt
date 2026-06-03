@@ -28,6 +28,10 @@ set(ENGINE_RENDER_SOURCES
     render/VulkanContext.cpp
     render/VulkanDebug.cpp
     render/SnapshotRing.cpp
+    render/GpuDeferredFreeQueue.cpp
+    render/PerFrameGpuWrites.cpp
+    render/HostMemory.cpp
+    render/StagingRing.cpp
     render/Renderer.cpp
 )
 
