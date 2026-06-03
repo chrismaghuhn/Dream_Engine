@@ -50,7 +50,7 @@ TEST_CASE("cooks player set and writes to build/character_cache", "[catalog][int
     REQUIRE(std::filesystem::exists(cache_dir));
 }
 
-TEST_CASE("cooks dummy set — hit reaction clip present", "[catalog][integration]") {
+TEST_CASE("cooks dummy set hit reaction clip present", "[catalog][integration]") {
     engine::character::CharacterAsset asset = engine::character::CharacterCatalog::load_dummy_set();
 
     REQUIRE(asset.mesh.positions.size() > 0);
