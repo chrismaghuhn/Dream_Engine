@@ -78,7 +78,7 @@ find_package(Vulkan REQUIRED)
 FetchContent_Declare(
     volk
     GIT_REPOSITORY https://github.com/zeux/volk.git
-    GIT_TAG        sdk-1.4.321
+    GIT_TAG        vulkan-sdk-1.4.350.0
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(volk)
