@@ -24,6 +24,7 @@ add_executable(engine_tests
     physics/test_physics_system_jolt.cpp
     physics/test_object_layer_matrix.cpp
     physics/test_collision_remesh_queue.cpp
+    physics/test_debris_system.cpp
     persist/test_minimal_save.cpp
     persist/test_region_save.cpp
     persist/test_player_dat_inventory.cpp

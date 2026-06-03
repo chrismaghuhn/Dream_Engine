@@ -19,6 +19,7 @@ struct ThreadConfig {
 struct DestructionConfig {
     int max_active_debris = 0;
     int max_fracture_depth = 0;
+    float debris_despawn_radius = 0.f;
 };
 
 enum class RenderPreset { Low, Medium, High };
@@ -66,6 +67,7 @@ private:
     DestructionConfig destruction_{};
     int destruction_max_active_debris_override_ = 0;
     int destruction_max_fracture_depth_override_ = 0;
+    float destruction_debris_despawn_radius_override_ = 0.f;
     RenderPreset render_preset_ = RenderPreset::Medium;
     bool cpu_finalized_ = false;
 };

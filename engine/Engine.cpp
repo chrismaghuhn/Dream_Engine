@@ -7,6 +7,7 @@
 #include "engine/gameplay/BlockInteraction.hpp"
 #include "engine/gameplay/CameraSystem.hpp"
 #include "engine/gameplay/PlayerMotor.hpp"
+#include "engine/physics/DebrisSystem.hpp"
 #include "engine/physics/VoxelCapsuleResolver.hpp"
 #include "engine/render/Renderer.hpp"
 #include "engine/world/WorldEvents.hpp"
@@ -110,6 +111,8 @@ bool Engine::startup() {
         world_ = flecs::world{};
         return false;
     }
+
+    debris_.init(world_, physics_, debris_config_from_engine(config_));
 
     if (!audio_.init(world_, chunk_store_, config_)) {
         SPDLOG_ERROR("Failed to initialize AudioEngine");
@@ -342,6 +345,10 @@ void Engine::run() {
 
         sim_clock_.advance(frame_delta);
         sim_tick_ += sim_clock_.step([this]() { tick_player_simulation(); });
+
+        if (auto* camera_component = player_fly_.get<CameraComponent>()) {
+            debris_.tick(world_, camera_component->camera.position);
+        }
 
         audio_.tick();
         if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {

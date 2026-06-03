@@ -7,8 +7,11 @@
 #if defined(ENGINE_HAS_JOLT)
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Factory.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
@@ -150,6 +153,79 @@ void PhysicsSystem::shutdown() {
     JPH::Factory::sInstance = nullptr;
 #endif
     active_ = false;
+}
+
+DebrisBodyHandle PhysicsSystem::create_debris_box(const glm::vec3& center, const float half_extent) {
+#if defined(ENGINE_HAS_JOLT)
+    if (g_jolt_state == nullptr || !active_) {
+        return {};
+    }
+
+    const JPH::BoxShapeSettings box_settings(JPH::Vec3(half_extent, half_extent, half_extent));
+    const JPH::ShapeSettings::ShapeResult shape_result = box_settings.Create();
+    if (!shape_result.IsValid()) {
+        return {};
+    }
+
+    const JPH::BodyCreationSettings settings(
+        shape_result.Get(),
+        JPH::RVec3(center.x, center.y, center.z),
+        JPH::Quat::sIdentity(),
+        JPH::EMotionType::Dynamic,
+        kJoltDebris);
+
+    JPH::BodyInterface& body_interface = g_jolt_state->system->GetBodyInterface();
+    JPH::Body* body = body_interface.CreateBody(settings);
+    if (body == nullptr) {
+        return {};
+    }
+
+    body_interface.AddBody(body->GetID(), JPH::EActivation::Activate);
+    const JPH::BodyID id = body->GetID();
+    return DebrisBodyHandle{
+        .valid = true,
+        .body_index = id.GetIndex(),
+        .body_sequence = id.GetSequenceNumber(),
+    };
+#else
+    (void)center;
+    (void)half_extent;
+    return {};
+#endif
+}
+
+void PhysicsSystem::destroy_debris_body(DebrisBodyHandle& handle) {
+#if defined(ENGINE_HAS_JOLT)
+    if (!handle.valid || g_jolt_state == nullptr) {
+        handle = {};
+        return;
+    }
+
+    const JPH::BodyID id(handle.body_index, handle.body_sequence);
+    JPH::BodyInterface& body_interface = g_jolt_state->system->GetBodyInterface();
+    body_interface.RemoveBody(id);
+    body_interface.DestroyBody(id);
+#endif
+    handle = {};
+}
+
+ObjectLayer PhysicsSystem::debris_body_layer(const DebrisBodyHandle& handle) const {
+#if defined(ENGINE_HAS_JOLT)
+    if (!handle.valid || g_jolt_state == nullptr) {
+        return ObjectLayer::Count;
+    }
+
+    const JPH::BodyID id(handle.body_index, handle.body_sequence);
+    JPH::BodyInterface& body_interface = g_jolt_state->system->GetBodyInterface();
+    if (!body_interface.IsAdded(id)) {
+        return ObjectLayer::Count;
+    }
+
+    return static_cast<ObjectLayer>(body_interface.GetObjectLayer(id));
+#else
+    (void)handle;
+    return ObjectLayer::Count;
+#endif
 }
 
 } // namespace engine

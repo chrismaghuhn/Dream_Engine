@@ -76,6 +76,7 @@ target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_D
 
 set(ENGINE_PHYSICS_SOURCES
     physics/PhysicsSystem.cpp
+    physics/DebrisSystem.cpp
     physics/VoxelCapsuleResolver.cpp
     physics/ObjectLayerMatrix.cpp
     physics/CollisionRemeshQueue.cpp
@@ -83,7 +84,7 @@ set(ENGINE_PHYSICS_SOURCES
 
 add_library(engine_physics STATIC ${ENGINE_PHYSICS_SOURCES})
 target_include_directories(engine_physics PUBLIC ${CMAKE_SOURCE_DIR})
-target_link_libraries(engine_physics PUBLIC glm::glm spdlog::spdlog)
+target_link_libraries(engine_physics PUBLIC glm::glm spdlog::spdlog flecs_static)
 if(ENGINE_JOLT)
     if(TARGET Jolt)
         target_link_libraries(engine_physics PUBLIC Jolt)

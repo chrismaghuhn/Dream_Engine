@@ -171,6 +171,8 @@ void EngineConfig::load_toml(const std::string& path) {
                 read_int_or_default(*destruction, "max_active_debris", 0);
             destruction_max_fracture_depth_override_ =
                 read_int_or_default(*destruction, "max_fracture_depth", 0);
+            destruction_debris_despawn_radius_override_ =
+                read_float_or_default(*destruction, "debris_despawn_radius", 0.f);
         }
     }
 }
@@ -193,6 +195,9 @@ void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
     }
     if (destruction_max_fracture_depth_override_ > 0) {
         destruction_.max_fracture_depth = destruction_max_fracture_depth_override_;
+    }
+    if (destruction_debris_despawn_radius_override_ > 0.f) {
+        destruction_.debris_despawn_radius = destruction_debris_despawn_radius_override_;
     }
     cpu_finalized_ = true;
 }

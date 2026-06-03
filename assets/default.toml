@@ -11,6 +11,8 @@ meshing = 0
 # 0 = auto from RAM in finalize_cpu
 max_active_debris = 0
 max_fracture_depth = 0
+# 0 = auto from streaming horizontal radius (chunks * 32 blocks)
+debris_despawn_radius = 0
 
 [world]
 chunk_height_min = -4
