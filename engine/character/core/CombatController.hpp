@@ -14,7 +14,7 @@ struct InputSnapshot;
 namespace engine::character {
 
 // Advance the combat FSM by dt seconds.
-// - Idle + attack_pressed → start first combo attack, lock attack_yaw.
+// - Idle + attack_light -> start first combo attack, lock attack_yaw.
 // - Attacking → clip_remaining counts down; on expiry advance combo or enter Recovery.
 // - Recovery → recovery_remaining counts down; on expiry return to Idle.
 // - Movement is frozen while Attacking or in Recovery (caller responsibility).

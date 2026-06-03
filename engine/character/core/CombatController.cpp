@@ -63,8 +63,8 @@ void combat_tick(CombatController& combat,
     switch (combat.phase) {
 
     case CombatPhase::Idle: {
-        if (input.attack_pressed && !combat.combo_ids.empty()) {
-            input.attack_pressed = false;
+        if (input.attack_light && !combat.combo_ids.empty()) {
+            input.attack_light = false;
             if (start_attack(combat, transform, anim, attacks, clips, 0)) {
                 combat.phase = CombatPhase::Attacking;
             }
@@ -74,7 +74,7 @@ void combat_tick(CombatController& combat,
 
     case CombatPhase::Attacking: {
         // Consume any attack request — no new combo until Idle.
-        input.attack_pressed = false;
+        input.attack_light = false;
 
         // Advance animation time (clip_remaining is the budget).
         anim.time_seconds += dt * anim.speed;
@@ -110,7 +110,7 @@ void combat_tick(CombatController& combat,
 
     case CombatPhase::Recovery: {
         // Ignore attack requests during recovery.
-        input.attack_pressed = false;
+        input.attack_light = false;
 
         combat.recovery_remaining -= dt;
         if (combat.recovery_remaining <= 0.f) {

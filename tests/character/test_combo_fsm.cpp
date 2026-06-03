@@ -41,21 +41,21 @@ static Transform make_transform() {
     return tf;
 }
 
-TEST_CASE("idle + attack_pressed starts first combo hit", "[combo_fsm]") {
+TEST_CASE("idle + attack_light starts first combo hit", "[combo_fsm]") {
     auto attacks = make_table();
     auto clips   = make_clips();
     auto combat  = make_combat();
     auto tf      = make_transform();
     AnimationState anim;
     InputSnapshot input;
-    input.attack_pressed = true;
+    input.attack_light = true;
 
     combat_tick(combat, tf, anim, input, attacks, clips, 1.f / 60.f);
 
     REQUIRE(combat.phase == CombatPhase::Attacking);
     REQUIRE(combat.combo_index == 0);
     REQUIRE(anim.active_clip == "Punch");
-    REQUIRE_FALSE(input.attack_pressed); // consumed
+    REQUIRE_FALSE(input.attack_light); // consumed
     REQUIRE(combat.hit_consumed == false);
 }
 
@@ -66,7 +66,7 @@ TEST_CASE("chains three attacks then enters recovery", "[combo_fsm]") {
     auto tf      = make_transform();
     AnimationState anim;
     InputSnapshot input;
-    input.attack_pressed = true;
+    input.attack_light = true;
 
     const float dt = 1.f / 60.f;
 
@@ -103,23 +103,23 @@ TEST_CASE("chains three attacks then enters recovery", "[combo_fsm]") {
     REQUIRE(combat.phase == CombatPhase::Idle);
 }
 
-TEST_CASE("ignores attack_pressed while Attacking", "[combo_fsm]") {
+TEST_CASE("ignores attack_light while Attacking", "[combo_fsm]") {
     auto attacks = make_table();
     auto clips   = make_clips();
     auto combat  = make_combat();
     auto tf      = make_transform();
     AnimationState anim;
     InputSnapshot input;
-    input.attack_pressed = true;
+    input.attack_light = true;
 
     const float dt = 1.f / 60.f;
     combat_tick(combat, tf, anim, input, attacks, clips, dt);
     REQUIRE(combat.phase == CombatPhase::Attacking);
 
     // Try to attack again mid-combo.
-    input.attack_pressed = true;
+    input.attack_light = true;
     combat_tick(combat, tf, anim, input, attacks, clips, dt);
-    REQUIRE(input.attack_pressed == false);   // consumed/cleared
+    REQUIRE(input.attack_light == false);     // consumed/cleared
     REQUIRE(combat.phase == CombatPhase::Attacking); // still in combo
     REQUIRE(combat.combo_index == 0);         // did NOT re-start combo
 }
@@ -132,7 +132,7 @@ TEST_CASE("attack_yaw locked at attack start", "[combo_fsm]") {
     tf.yaw = 1.5f;
     AnimationState anim;
     InputSnapshot input;
-    input.attack_pressed = true;
+    input.attack_light = true;
 
     combat_tick(combat, tf, anim, input, attacks, clips, 1.f / 60.f);
 
