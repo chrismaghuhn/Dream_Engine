@@ -227,6 +227,7 @@ bool minimal_save_world(
     const std::filesystem::path& world_dir,
     const WorldConfig& world_config,
     const WorldPosition& player_position,
+    const InventorySnapshot& inventory,
     ChunkStore& store) {
     std::error_code ec;
     std::filesystem::create_directories(chunks_dir(world_dir), ec);
@@ -253,6 +254,7 @@ bool minimal_save_world(
 
     const PlayerSaveV1 player{
         .position = player_position,
+        .inventory = inventory,
     };
     return write_player_dat_atomic(world_dir / "player.dat", player);
 }
@@ -261,6 +263,7 @@ bool minimal_load_world(
     const std::filesystem::path& world_dir,
     const WorldConfig& world_config,
     WorldPosition& out_player_position,
+    InventorySnapshot& out_inventory,
     ChunkStore& store) {
     MinimalSaveWorldMeta meta{};
     if (!read_world_meta(world_dir, meta)) {
@@ -275,6 +278,7 @@ bool minimal_load_world(
         return false;
     }
     out_player_position = player.position;
+    out_inventory = player.inventory;
 
     const std::filesystem::path chunk_root = chunks_dir(world_dir);
     std::error_code ec;

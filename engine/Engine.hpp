@@ -13,6 +13,7 @@
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/OriginRebase.hpp"
 #include "engine/gameplay/CreativeBlockPicker.hpp"
+#include "engine/gameplay/Inventory.hpp"
 #include "engine/gameplay/PlayerMotor.hpp"
 #include "engine/gameplay/PlayerMotorConfig.hpp"
 #include "engine/gameplay/PlayerSpawnReadyGate.hpp"
@@ -21,6 +22,7 @@
 #include "engine/persist/SaveService.hpp"
 #include "engine/world/WorldPosition.hpp"
 
+#include <array>
 #include <filesystem>
 #include <flecs.h>
 #include <string>
@@ -81,6 +83,10 @@ private:
     bool walk_mode_ = true;
     bool fly_mode_toggle_down_ = false;
     CreativeBlockPicker creative_picker_{};
+    Inventory inventory_{};
+    bool inventory_open_ = false;
+    bool inventory_toggle_down_ = false;
+    std::array<bool, kHotbarSlots> hotbar_slot_down_{};
     std::filesystem::path saves_root_;
     std::string world_name_ = "default";
     std::uint64_t frame_index_ = 0;

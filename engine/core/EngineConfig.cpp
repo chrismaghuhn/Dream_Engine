@@ -148,6 +148,10 @@ void EngineConfig::load_toml(const std::string& path) {
     if (const auto* render = table["render"].as_table()) {
         thin_terrain_preview_ = read_bool_or_default(*render, "thin_terrain_preview", false);
     }
+
+    if (const auto* debug = table["debug"].as_table()) {
+        creative_place_ = read_bool_or_default(*debug, "creative_place", false);
+    }
 }
 
 void EngineConfig::finalize_cpu(const CpuHardware& cpu) {

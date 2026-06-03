@@ -15,3 +15,7 @@ sea_level = 64
 world_seed = 42
 rebase_radius = 512.0
 player_reach = 5.0
+
+[debug]
+# When true, right-click place uses CreativeBlockPicker instead of hotbar inventory.
+creative_place = false

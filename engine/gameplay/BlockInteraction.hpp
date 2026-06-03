@@ -3,6 +3,7 @@
 #include "engine/gameplay/BlockMutation.hpp"
 #include "engine/gameplay/Camera.hpp"
 #include "engine/gameplay/CreativeBlockPicker.hpp"
+#include "engine/gameplay/Inventory.hpp"
 #include "engine/platform/Input.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/WorldConfig.hpp"
@@ -49,7 +50,9 @@ void handle_block_input(
     const Camera& camera,
     const Input& input,
     const WorldConfig& world_config,
-    CreativeBlockPicker& picker,
+    const Inventory& inventory,
+    bool creative_place,
+    const CreativeBlockPicker* creative_picker,
     uint64_t tick,
     uint64_t source_entity = 0);
 

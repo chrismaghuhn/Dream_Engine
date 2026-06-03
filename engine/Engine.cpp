@@ -97,6 +97,7 @@ bool Engine::startup() {
 
     saves_root_ = std::filesystem::path(ENGINE_SOURCE_DIR) / "saves";
     chunk_store_.init(static_cast<uint32_t>(config_.streaming().max_loaded_chunks));
+    inventory_.seed_default_hotbar();
     (void)try_load_world_save();
 
     if (!physics_.init()) {
@@ -163,6 +164,7 @@ SaveWorldRequest Engine::make_save_request() const {
     request.world_name = world_name_;
     request.world_config = config_.world();
     request.player_position = current_player_position();
+    request.inventory = inventory_.snapshot();
     return request;
 }
 
@@ -189,12 +191,14 @@ bool Engine::try_load_world_save() {
     }
 
     WorldPosition loaded_position{};
-    if (!SaveService::load_world(request, loaded_position, chunk_store_)) {
+    InventorySnapshot loaded_inventory{};
+    if (!SaveService::load_world(request, loaded_position, loaded_inventory, chunk_store_)) {
         SPDLOG_WARN("Failed to load world save from {}", SaveService::world_dir(request).string());
         return false;
     }
 
     apply_player_position(loaded_position);
+    inventory_.apply_snapshot(loaded_inventory);
     spawn_gate_.reset();
     SPDLOG_INFO("Loaded world save from {}", SaveService::world_dir(request).string());
     return true;
@@ -338,25 +342,47 @@ void Engine::run() {
             }
             fly_mode_toggle_down_ = fly_toggle_now;
 
+            const bool inventory_toggle_now =
+                glfwGetKey(platform_.window(), GLFW_KEY_I) == GLFW_PRESS;
+            if (inventory_toggle_now && !inventory_toggle_down_) {
+                inventory_open_ = !inventory_open_;
+                input_.set_cursor_captured(platform_.window(), !inventory_open_);
+            }
+            inventory_toggle_down_ = inventory_toggle_now;
+
+            for (int slot = 0; slot < static_cast<int>(kHotbarSlots); ++slot) {
+                const int key = GLFW_KEY_1 + slot;
+                const bool slot_now = glfwGetKey(platform_.window(), key) == GLFW_PRESS;
+                if (slot_now && !hotbar_slot_down_[static_cast<size_t>(slot)]) {
+                    inventory_.set_hotbar_selected(static_cast<std::uint8_t>(slot));
+                }
+                hotbar_slot_down_[static_cast<size_t>(slot)] = slot_now;
+            }
+
             if (!spawn_gate_.is_ready()) {
                 refresh_spawn_gate();
             }
 
-            if (walk_mode_ && spawn_gate_.is_ready()) {
+            const bool look_from_input = walk_mode_ && spawn_gate_.is_ready() && !inventory_open_;
+            if (look_from_input) {
                 CameraSystem::update_look_from_input(*camera_component, input_);
-            } else {
+            } else if (!inventory_open_) {
                 CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
                 origin_rebase_.maybe_rebase(
                     world_, camera_component->camera.position, config_.world());
             }
 
+            const CreativeBlockPicker* creative_picker =
+                config_.creative_place() ? &creative_picker_ : nullptr;
             handle_block_input(
                 world_,
                 chunk_store_,
                 camera_component->camera,
                 input_,
                 config_.world(),
-                creative_picker_,
+                inventory_,
+                config_.creative_place(),
+                creative_picker,
                 sim_tick_,
                 player_fly_.id());
 
@@ -381,11 +407,18 @@ void Engine::run() {
         const std::uint32_t snapshot_slot = renderer_.snapshot_ring().pick_write_slot();
         render_build(snapshot_slot);
 
-        ui_host_.new_frame(UiOverlayStats{
-            .fps = fps,
-            .sim_tick = sim_tick_,
-            .loaded_chunks = chunk_store_.loaded_count(),
-        });
+        UiInventoryState inventory_ui{
+            .inventory = &inventory_,
+            .inventory_open = inventory_open_,
+        };
+        ui_host_.new_frame(
+            UiOverlayStats{
+                .fps = fps,
+                .sim_tick = sim_tick_,
+                .loaded_chunks = chunk_store_.loaded_count(),
+            },
+            inventory_ui);
+        inventory_open_ = inventory_ui.inventory_open;
         renderer_.render_frame(snapshot_slot);
         ++frame_index_;
     }

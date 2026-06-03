@@ -57,13 +57,17 @@ TEST_CASE("minimal save reload preserves player-placed block") {
     request.world_name = "test_world";
     request.world_config = world_config;
     request.player_position = make_player_position();
+    engine::Inventory inventory{};
+    inventory.seed_default_hotbar();
+    request.inventory = inventory.snapshot();
     REQUIRE(engine::SaveService::save_world(request, store));
 
     engine::ChunkStore reloaded;
     reloaded.init(16);
 
     engine::WorldPosition loaded_position{};
-    REQUIRE(engine::SaveService::load_world(request, loaded_position, reloaded));
+    engine::InventorySnapshot loaded_inventory{};
+    REQUIRE(engine::SaveService::load_world(request, loaded_position, loaded_inventory, reloaded));
     REQUIRE(loaded_position.chunk == request.player_position.chunk);
     REQUIRE(loaded_position.local.x == request.player_position.local.x);
     REQUIRE(loaded_position.local.y == request.player_position.local.y);

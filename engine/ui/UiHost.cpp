@@ -12,8 +12,62 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
+#include <cstring>
+#include <string>
 
 namespace engine {
+
+namespace {
+
+constexpr const char* kInventoryDragPayload = "INV_SLOT";
+
+void draw_item_stack_button(const ItemStack& stack, bool selected) {
+    const ImVec4 selected_tint =
+        selected ? ImVec4(0.35f, 0.35f, 0.15f, 1.f) : ImVec4(0.2f, 0.2f, 0.2f, 1.f);
+    ImGui::PushStyleColor(ImGuiCol_Button, selected_tint);
+    const char* label = stack.empty() ? "-" : item_display_name(stack.item_id);
+    ImGui::Button(label, ImVec2(48.f, 48.f));
+    if (!stack.empty() && stack.count > 1) {
+        const ImVec2 rect_max = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddText(
+            ImVec2(rect_max.x - 18.f, rect_max.y - 16.f),
+            IM_COL32(255, 255, 255, 255),
+            std::to_string(stack.count).c_str());
+    }
+    ImGui::PopStyleColor();
+}
+
+void inventory_drag_source(const ItemStack& stack, std::size_t slot_index) {
+    if (stack.empty() || !ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        return;
+    }
+    ImGui::SetDragDropPayload(kInventoryDragPayload, &slot_index, sizeof(slot_index));
+    ImGui::Text("%s", item_display_name(stack.item_id));
+    ImGui::EndDragDropSource();
+}
+
+void inventory_drop_target(Inventory& inventory, std::size_t slot_index) {
+    if (!ImGui::BeginDragDropTarget()) {
+        return;
+    }
+    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kInventoryDragPayload)) {
+        if (payload->DataSize == sizeof(std::size_t)) {
+            std::size_t source_index = 0;
+            std::memcpy(&source_index, payload->Data, sizeof(source_index));
+            inventory.swap_slots(source_index, slot_index);
+        }
+    }
+    ImGui::EndDragDropTarget();
+}
+
+void draw_inventory_slot(Inventory& inventory, std::size_t slot_index, bool selected) {
+    const ItemStack& stack = inventory.slot(slot_index);
+    draw_item_stack_button(stack, selected);
+    inventory_drag_source(stack, slot_index);
+    inventory_drop_target(inventory, slot_index);
+}
+
+} // namespace
 
 namespace {
 
@@ -155,7 +209,63 @@ void UiHost::destroy_descriptor_pool(VkDevice device) {
     descriptor_pool_ = VK_NULL_HANDLE;
 }
 
-void UiHost::new_frame(const UiOverlayStats& stats) {
+void UiHost::draw_inventory_ui(UiInventoryState& inventory_ui) {
+    if (inventory_ui.inventory == nullptr) {
+        return;
+    }
+
+    Inventory& inventory = *inventory_ui.inventory;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 hotbar_size{static_cast<float>(kHotbarSlots * 52.f + 16.f), 72.f};
+    const ImVec2 hotbar_pos{
+        viewport->WorkPos.x + (viewport->WorkSize.x - hotbar_size.x) * 0.5f,
+        viewport->WorkPos.y + viewport->WorkSize.y - hotbar_size.y - 12.f,
+    };
+
+    ImGui::SetNextWindowPos(hotbar_pos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(hotbar_size, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    if (ImGui::Begin("Hotbar",
+                      nullptr,
+                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+                          ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove)) {
+        for (std::size_t i = 0; i < kHotbarSlots; ++i) {
+            if (i > 0) {
+                ImGui::SameLine();
+            }
+            draw_inventory_slot(inventory, i, inventory.hotbar_selected == i);
+        }
+    }
+    ImGui::End();
+
+    if (!inventory_ui.inventory_open) {
+        return;
+    }
+
+    const ImVec2 grid_size{static_cast<float>(kInventoryColumns * 52.f + 16.f),
+                           static_cast<float>(kInventoryRows * 52.f + 40.f)};
+    const ImVec2 grid_pos{
+        viewport->WorkPos.x + (viewport->WorkSize.x - grid_size.x) * 0.5f,
+        viewport->WorkPos.y + (viewport->WorkSize.y - grid_size.y) * 0.5f - 40.f,
+    };
+
+    ImGui::SetNextWindowPos(grid_pos, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(grid_size, ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Inventory", &inventory_ui.inventory_open)) {
+        for (std::size_t row = 0; row < kInventoryRows; ++row) {
+            for (std::size_t col = 0; col < kInventoryColumns; ++col) {
+                if (col > 0) {
+                    ImGui::SameLine();
+                }
+                const std::size_t slot_index = kHotbarSlots + row * kInventoryColumns + col;
+                draw_inventory_slot(inventory, slot_index, false);
+            }
+        }
+    }
+    ImGui::End();
+}
+
+void UiHost::new_frame(const UiOverlayStats& stats, UiInventoryState& inventory_ui) {
     if (!initialized_) {
         return;
     }
@@ -176,6 +286,8 @@ void UiHost::new_frame(const UiOverlayStats& stats) {
         ImGui::Text("Loaded chunks: %u", stats.loaded_chunks);
     }
     ImGui::End();
+
+    draw_inventory_ui(inventory_ui);
 }
 
 void UiHost::render(VkCommandBuffer command_buffer) {

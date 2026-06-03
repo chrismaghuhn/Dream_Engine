@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/gameplay/Inventory.hpp"
 #include "engine/persist/PlayerDat.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/WorldConfig.hpp"
@@ -24,12 +25,14 @@ struct MinimalSaveWorldMeta {
     const std::filesystem::path& world_dir,
     const WorldConfig& world_config,
     const WorldPosition& player_position,
+    const InventorySnapshot& inventory,
     ChunkStore& store);
 
 [[nodiscard]] bool minimal_load_world(
     const std::filesystem::path& world_dir,
     const WorldConfig& world_config,
     WorldPosition& out_player_position,
+    InventorySnapshot& out_inventory,
     ChunkStore& store);
 
 } // namespace engine

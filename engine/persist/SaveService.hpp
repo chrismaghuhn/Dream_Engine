@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/gameplay/Inventory.hpp"
 #include "engine/persist/MinimalSaveBackend.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/WorldConfig.hpp"
@@ -15,6 +16,7 @@ struct SaveWorldRequest {
     std::string world_name = "default";
     WorldConfig world_config{};
     WorldPosition player_position{};
+    InventorySnapshot inventory{};
 };
 
 class SaveService {
@@ -28,17 +30,20 @@ public:
             world_dir(request),
             request.world_config,
             request.player_position,
+            request.inventory,
             store);
     }
 
     [[nodiscard]] static bool load_world(
         const SaveWorldRequest& request,
         WorldPosition& out_player_position,
+        InventorySnapshot& out_inventory,
         ChunkStore& store) {
         return minimal_load_world(
             world_dir(request),
             request.world_config,
             out_player_position,
+            out_inventory,
             store);
     }
 

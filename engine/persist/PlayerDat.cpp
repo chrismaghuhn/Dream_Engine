@@ -79,11 +79,15 @@ std::vector<std::uint8_t> encode_player_dat_v1(const PlayerSaveV1& player) {
     append_f32(out, player.position.local.z);
     append_f32(out, player.health);
     append_f32(out, player.hunger);
-    out.push_back(player.hotbar_selected);
+    out.push_back(player.inventory.hotbar_selected);
     out.push_back(0);
     out.push_back(0);
     out.push_back(0);
-    append_u16(out, 0); // inventory slot count stub
+    append_u16(out, kPlayerDatHotbarPersistSlots);
+    for (std::size_t i = 0; i < kHotbarSlots; ++i) {
+        append_u16(out, player.inventory.hotbar[i].item_id);
+        append_u16(out, player.inventory.hotbar[i].count);
+    }
     return out;
 }
 
@@ -113,7 +117,7 @@ bool decode_player_dat_v1(std::span<const std::uint8_t> bytes, PlayerSaveV1& out
     if (bytes.empty()) {
         return false;
     }
-    player.hotbar_selected = bytes[0];
+    player.inventory.hotbar_selected = bytes[0];
     bytes = bytes.subspan(1);
     if (bytes.size() < 3) {
         return false;
@@ -125,9 +129,28 @@ bool decode_player_dat_v1(std::span<const std::uint8_t> bytes, PlayerSaveV1& out
         return false;
     }
 
-    const size_t inventory_bytes = static_cast<size_t>(inventory_slots) * sizeof(std::uint32_t);
+    if (inventory_slots == 0) {
+        out = player;
+        return true;
+    }
+
+    if (inventory_slots != kPlayerDatHotbarPersistSlots) {
+        return false;
+    }
+
+    const size_t inventory_bytes = static_cast<size_t>(inventory_slots) * 4;
     if (bytes.size() < inventory_bytes) {
         return false;
+    }
+
+    for (std::size_t i = 0; i < kHotbarSlots; ++i) {
+        std::uint16_t item_id = 0;
+        std::uint16_t count = 0;
+        if (!read_u16(bytes, item_id) || !read_u16(bytes, count)) {
+            return false;
+        }
+        player.inventory.hotbar[i].item_id = item_id;
+        player.inventory.hotbar[i].count = count;
     }
 
     out = player;

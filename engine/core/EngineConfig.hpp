@@ -42,6 +42,7 @@ public:
     [[nodiscard]] const WorldConfig& world() const { return world_; }
     [[nodiscard]] const StreamingConfig& streaming() const { return streaming_; }
     [[nodiscard]] bool thin_terrain_preview() const { return thin_terrain_preview_; }
+    [[nodiscard]] bool creative_place() const { return creative_place_; }
     [[nodiscard]] const CpuHardware& cpu_hardware() const { return cpu_; }
     [[nodiscard]] RenderPreset render_preset() const { return render_preset_; }
 
@@ -54,6 +55,7 @@ private:
     int streaming_vertical_override_ = 0;
     int streaming_max_chunks_override_ = 0;
     bool thin_terrain_preview_ = false;
+    bool creative_place_ = false;
     CpuHardware cpu_{};
     RenderPreset render_preset_ = RenderPreset::Medium;
     bool cpu_finalized_ = false;

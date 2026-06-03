@@ -223,7 +223,7 @@ bool place_block_at(
     BlockId block_id_to_place,
     uint64_t tick,
     uint64_t source_entity) {
-    if (!is_solid(block_id_to_place)) {
+    if (block_id_to_place == BLOCK_AIR || block_id_to_place == BLOCK_WATER) {
         return false;
     }
 
@@ -248,7 +248,9 @@ void handle_block_input(
     const Camera& camera,
     const Input& input,
     const WorldConfig& world_config,
-    CreativeBlockPicker& picker,
+    const Inventory& inventory,
+    const bool creative_place,
+    const CreativeBlockPicker* creative_picker,
     uint64_t tick,
     uint64_t source_entity) {
     const auto hit = raycast_blocks(camera, store, world_config.player_reach);
@@ -262,8 +264,11 @@ void handle_block_input(
     }
 
     if (input.place_pressed()) {
-        (void)place_block_at(
-            world, store, hit->place_pos, picker.selected_id(), tick, source_entity);
+        BlockId block_id = inventory.selected_block_id();
+        if (creative_place && creative_picker != nullptr) {
+            block_id = creative_picker->selected_id();
+        }
+        (void)place_block_at(world, store, hit->place_pos, block_id, tick, source_entity);
     }
 }
 

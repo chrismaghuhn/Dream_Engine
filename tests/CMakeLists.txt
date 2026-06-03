@@ -20,6 +20,7 @@ add_executable(engine_tests
     gameplay/test_block_events.cpp
     physics/test_capsule_resolver.cpp
     persist/test_minimal_save.cpp
+    persist/test_player_dat_inventory.cpp
     render/test_snapshot_ring.cpp
     render/test_deferred_free_queue.cpp
     render/test_host_memory_alignment.cpp
