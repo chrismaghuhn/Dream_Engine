@@ -29,10 +29,6 @@ public:
     [[nodiscard]] Renderer& renderer() { return renderer_; }
 
 private:
-    struct VoxelEngineModule {
-        explicit VoxelEngineModule(flecs::world& /*ecs*/) {}
-    };
-
     EngineConfig config_{};
     JobSystem jobs_{};
     Platform platform_{};

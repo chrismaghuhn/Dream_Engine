@@ -3,6 +3,7 @@ set(ENGINE_CORE_SOURCES
     core/HardwareProbe.cpp
     core/EngineConfig.cpp
     core/JobSystem.cpp
+    world/WorldModule.cpp
     Engine.cpp
 )
 

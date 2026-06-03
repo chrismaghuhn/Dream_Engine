@@ -3,6 +3,7 @@
 #include "engine/core/CrashHandlerWin32.hpp"
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/Log.hpp"
+#include "engine/world/WorldModule.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -44,9 +45,9 @@ bool Engine::startup() {
 
     // Step 5: Tracy (optional) — skipped until ENGINE_TRACY is wired
 
-    // Step 6: Flecs world + empty module
+    // Step 6: Flecs world + world events module
     world_ = flecs::world();
-    world_.module<VoxelEngineModule>();
+    world_.import<WorldModule>();
 
     // Step 7: JobSystem
     jobs_.init(config_.threads());

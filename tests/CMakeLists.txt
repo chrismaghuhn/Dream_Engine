@@ -7,6 +7,7 @@ add_executable(engine_tests
     core/test_job_system.cpp
     world/test_indexing.cpp
     world/test_world_config.cpp
+    world/test_world_events.cpp
     render/test_snapshot_ring.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine_core Catch2::Catch2WithMain)
