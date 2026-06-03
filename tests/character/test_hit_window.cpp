@@ -67,7 +67,7 @@ TEST_CASE("hit fires at most once per swing", "[hit_window]") {
     auto target   = make_transform({0.f, 1.f, 1.25f});
     auto col      = box_col();
 
-    try_hit_in_window(combat, anim, def, 1.f, attacker, target, col);
+    (void)try_hit_in_window(combat, anim, def, 1.f, attacker, target, col);
     REQUIRE(combat.hit_consumed);
 
     REQUIRE_FALSE(try_hit_in_window(combat, anim, def, 1.f, attacker, target, col));

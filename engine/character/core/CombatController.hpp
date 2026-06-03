@@ -3,28 +3,35 @@
 #include "engine/character/core/AttackData.hpp"
 #include "engine/character/core/CharacterAsset.hpp"
 #include "engine/character/core/CharacterComponents.hpp"
+#include "engine/character/core/InputBuffer.hpp"
 
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::movement {
 struct Transform;
-struct InputSnapshot;
 } // namespace engine::movement
 
 namespace engine::character {
 
-// Advance the combat FSM by dt seconds.
-// - Idle + attack_light -> start first combo attack, lock attack_yaw.
-// - Attacking → clip_remaining counts down; on expiry advance combo or enter Recovery.
-// - Recovery → recovery_remaining counts down; on expiry return to Idle.
-// - Movement is frozen while Attacking or in Recovery (caller responsibility).
-// clips: the character asset's clip list, used for duration lookup when starting attacks.
+using ChainTable = std::unordered_map<std::string, std::vector<std::string>>;
+
+inline constexpr const char* kLightChain = "light_chain";
+inline constexpr const char* kHeavyChain = "heavy_chain";
+inline constexpr const char* kKickChain = "kick_chain";
+inline constexpr const char* kSpecialChain = "special_chain";
+
+// Advance the combat FSM by one fixed simulation step.
+// AnimationController::tick must run before this function; combat_tick never
+// advances AnimationState::time_seconds.
 void combat_tick(CombatController& combat,
                  engine::movement::Transform& transform,
                  AnimationState& anim,
-                 engine::movement::InputSnapshot& input,
+                 InputBuffer& buffer,
                  const AttackTable& attacks,
                  const std::vector<AnimClip>& clips,
+                 const ChainTable& chains,
                  float dt);
 
 } // namespace engine::character
