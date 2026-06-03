@@ -71,5 +71,22 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
-# --- Later milestones ---
-# FetchContent_Declare(volk   GIT_REPOSITORY https://github.com/zeux/volk.git           GIT_TAG sdk-1.4.321)
+# --- M0-8 ---
+
+find_package(Vulkan REQUIRED)
+
+FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG        sdk-1.4.321
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(volk)
+
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.1.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(VulkanMemoryAllocator)

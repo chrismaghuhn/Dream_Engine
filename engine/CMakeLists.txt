@@ -14,6 +14,22 @@ add_library(engine_platform STATIC platform/Platform.cpp)
 target_include_directories(engine_platform PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(engine_platform PUBLIC glfw)
 
+set(ENGINE_RENDER_SOURCES
+    render/VulkanContext.cpp
+    render/VulkanDebug.cpp
+    render/Renderer.cpp
+)
+
+add_library(engine_render STATIC ${ENGINE_RENDER_SOURCES})
+target_include_directories(engine_render PUBLIC ${CMAKE_SOURCE_DIR})
+target_compile_definitions(engine_render PUBLIC VK_NO_PROTOTYPES)
+target_link_libraries(engine_render PUBLIC
+    engine_platform
+    volk
+    Vulkan::Vulkan
+)
+target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_DIR}/include)
+
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})
 target_include_directories(engine_core PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(engine_core PUBLIC
@@ -21,6 +37,7 @@ target_link_libraries(engine_core PUBLIC
     glm::glm
     tomlplusplus::tomlplusplus
     engine_platform
+    engine_render
     flecs_static
     enkiTS
 )

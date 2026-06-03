@@ -3,6 +3,7 @@
 #include "engine/core/EngineConfig.hpp"
 #include "engine/core/JobSystem.hpp"
 #include "engine/platform/Platform.hpp"
+#include "engine/render/Renderer.hpp"
 
 #include <flecs.h>
 
@@ -25,6 +26,7 @@ public:
     [[nodiscard]] JobSystem& jobs() { return jobs_; }
     [[nodiscard]] flecs::world& world() { return world_; }
     [[nodiscard]] Platform& platform() { return platform_; }
+    [[nodiscard]] Renderer& renderer() { return renderer_; }
 
 private:
     struct VoxelEngineModule {
@@ -34,6 +36,7 @@ private:
     EngineConfig config_{};
     JobSystem jobs_{};
     Platform platform_{};
+    Renderer renderer_{};
     flecs::world world_{};
     bool started_ = false;
 };

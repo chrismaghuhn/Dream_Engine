@@ -59,8 +59,23 @@ bool Engine::startup() {
         return false;
     }
 
+    // Step 9: Renderer (Vulkan instance/device/swapchain) -> GpuCaps
+    if (!renderer_.init(platform_)) {
+        SPDLOG_ERROR("Failed to initialize Renderer");
+        platform_.shutdown();
+        jobs_.shutdown();
+        world_ = flecs::world{};
+        return false;
+    }
+
+    // Step 9b: finalize_gpu before ChunkStore or other GPU-budget consumers
+    config_.finalize_gpu(renderer_.gpu_caps());
+    SPDLOG_INFO("GPU finalize: {} MiB mesh VRAM budget, preset {}",
+                config_.memory().gpu_mesh_vram / (1024 * 1024),
+                static_cast<int>(config_.render_preset()));
+
     started_ = true;
-    SPDLOG_INFO("Engine startup complete (steps 1-8)");
+    SPDLOG_INFO("Engine startup complete (steps 1-9b)");
     return true;
 }
 
@@ -69,7 +84,8 @@ void Engine::shutdown() {
         return;
     }
 
-    // Reverse init order: 8 → 1
+    // Reverse init order: 9 → 1
+    renderer_.shutdown();
     platform_.shutdown();
     jobs_.shutdown();
     world_ = flecs::world{};
@@ -84,6 +100,7 @@ void Engine::shutdown() {
 void Engine::run() {
     while (!should_close()) {
         platform_.poll();
+        renderer_.render_frame();
     }
 }
 
