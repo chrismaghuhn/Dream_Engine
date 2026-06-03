@@ -33,14 +33,20 @@ public:
 private:
     struct SectionMeshState {
         std::uint8_t section_index = 0;
-        std::uint32_t gpu_slot_id = 0;
-        std::uint32_t index_count = 0;
+        std::uint32_t opaque_gpu_slot_id = 0;
+        std::uint32_t water_gpu_slot_id = 0;
+        std::uint32_t opaque_index_count = 0;
+        std::uint32_t water_index_count = 0;
         bool mesh_ready = false;
-        bool gpu_allocated = false;
-        bool upload_queued = false;
+        bool opaque_gpu_allocated = false;
+        bool water_gpu_allocated = false;
+        bool opaque_upload_queued = false;
+        bool water_upload_queued = false;
         bool mesh_job_pending = false;
-        std::vector<TerrainVertex> vertices;
-        std::vector<std::uint32_t> indices;
+        std::vector<TerrainVertex> opaque_vertices;
+        std::vector<std::uint32_t> opaque_indices;
+        std::vector<TerrainVertex> water_vertices;
+        std::vector<std::uint32_t> water_indices;
     };
 
     struct ChunkMeshState {
@@ -51,8 +57,10 @@ private:
     struct MeshCompletion {
         ChunkCoord coord{};
         std::uint8_t section_index = 0;
-        std::vector<TerrainVertex> vertices;
-        std::vector<std::uint32_t> indices;
+        std::vector<TerrainVertex> opaque_vertices;
+        std::vector<std::uint32_t> opaque_indices;
+        std::vector<TerrainVertex> water_vertices;
+        std::vector<std::uint32_t> water_indices;
     };
 
     void on_chunk_loaded(ChunkCoord coord);
@@ -73,7 +81,8 @@ private:
     std::mutex completion_mutex_;
     std::vector<MeshCompletion> completions_;
     std::vector<std::uint32_t> pending_slot_frees_;
-    std::vector<DrawSection> culled_sections_;
+    std::vector<DrawSection> culled_opaque_sections_;
+    std::vector<DrawSection> culled_water_sections_;
 };
 
 } // namespace engine

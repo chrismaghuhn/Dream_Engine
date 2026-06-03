@@ -17,7 +17,8 @@ struct VoxelSample {
     BlockState block{};
     uint8_t    sky_light   = 0;
     uint8_t    block_light = 0;
-    bool       solid       = false;
+    bool       opaque_solid = false;
+    bool       water        = false;
 };
 
 inline uint8_t pack_light_nibbles(uint8_t sky, uint8_t block) {
@@ -37,11 +38,13 @@ ENGINE_MESH_NOINLINE VoxelSample sample_voxel(const Section& section, int x, int
     if (x >= 0 && x < SECTION_DIM && y >= 0 && y < SECTION_DIM && z >= 0 && z < SECTION_DIM) {
         const int idx = block_index(x, y, z);
         const BlockState block = section.read_block(x, y, z);
+        const BlockId id = block_id(block);
         return {
             block,
             section.sky_light[static_cast<size_t>(idx)],
             section.block_light[static_cast<size_t>(idx)],
-            is_solid(block_id(block)),
+            is_solid(id),
+            is_water(id),
         };
     }
 
@@ -49,27 +52,33 @@ ENGINE_MESH_NOINLINE VoxelSample sample_voxel(const Section& section, int x, int
 
     if (x == -1 && y >= 0 && y < SECTION_DIM && z >= 0 && z < SECTION_DIM) {
         const BorderCell& c = border_cell(border, Face::NX, y, z);
-        return {c.block, c.sky_light, c.block_light, is_solid(block_id(c.block))};
+        const BlockId id = block_id(c.block);
+        return {c.block, c.sky_light, c.block_light, is_solid(id), is_water(id)};
     }
     if (x == SECTION_DIM && y >= 0 && y < SECTION_DIM && z >= 0 && z < SECTION_DIM) {
         const BorderCell& c = border_cell(border, Face::PX, y, z);
-        return {c.block, c.sky_light, c.block_light, is_solid(block_id(c.block))};
+        const BlockId id = block_id(c.block);
+        return {c.block, c.sky_light, c.block_light, is_solid(id), is_water(id)};
     }
     if (y == -1 && x >= 0 && x < SECTION_DIM && z >= 0 && z < SECTION_DIM) {
         const BorderCell& c = border_cell(border, Face::NY, x, z);
-        return {c.block, c.sky_light, c.block_light, is_solid(block_id(c.block))};
+        const BlockId id = block_id(c.block);
+        return {c.block, c.sky_light, c.block_light, is_solid(id), is_water(id)};
     }
     if (y == SECTION_DIM && x >= 0 && x < SECTION_DIM && z >= 0 && z < SECTION_DIM) {
         const BorderCell& c = border_cell(border, Face::PY, x, z);
-        return {c.block, c.sky_light, c.block_light, is_solid(block_id(c.block))};
+        const BlockId id = block_id(c.block);
+        return {c.block, c.sky_light, c.block_light, is_solid(id), is_water(id)};
     }
     if (z == -1 && x >= 0 && x < SECTION_DIM && y >= 0 && y < SECTION_DIM) {
         const BorderCell& c = border_cell(border, Face::NZ, x, y);
-        return {c.block, c.sky_light, c.block_light, is_solid(block_id(c.block))};
+        const BlockId id = block_id(c.block);
+        return {c.block, c.sky_light, c.block_light, is_solid(id), is_water(id)};
     }
     if (z == SECTION_DIM && x >= 0 && x < SECTION_DIM && y >= 0 && y < SECTION_DIM) {
         const BorderCell& c = border_cell(border, Face::PZ, x, y);
-        return {c.block, c.sky_light, c.block_light, is_solid(block_id(c.block))};
+        const BlockId id = block_id(c.block);
+        return {c.block, c.sky_light, c.block_light, is_solid(id), is_water(id)};
     }
 
     return {};
@@ -88,9 +97,9 @@ ENGINE_MESH_NOINLINE VoxelSample sample_axis(
 }
 
 ENGINE_MESH_NOINLINE uint8_t corner_light(
-    int x, int y, int z, const VoxelSample& solid_side, const Section& section) {
-    uint8_t sky = solid_side.sky_light;
-    uint8_t bl  = solid_side.block_light;
+    int x, int y, int z, const VoxelSample& face_side, const Section& section) {
+    uint8_t sky = face_side.sky_light;
+    uint8_t bl  = face_side.block_light;
 
     const SectionBorderCache& border = section.border;
 
@@ -147,7 +156,7 @@ ENGINE_MESH_NOINLINE void emit_quad(
     int v0,
     int width,
     int height,
-    const VoxelSample& solid_side,
+    const VoxelSample& face_side,
     const Section& section,
     std::vector<TerrainVertex>& vertices,
     std::vector<uint32_t>& indices) {
@@ -180,7 +189,7 @@ ENGINE_MESH_NOINLINE void emit_quad(
     }
 
     const uint32_t base = static_cast<uint32_t>(vertices.size());
-    const uint16_t material = block_id(solid_side.block);
+    const uint16_t material = block_id(face_side.block);
 
     for (int i = 0; i < 4; ++i) {
         const glm::ivec3& c = corners[i];
@@ -192,7 +201,7 @@ ENGINE_MESH_NOINLINE void emit_quad(
             face);
         vert.material_id = material;
         vert.ao            = 0;
-        vert.light         = corner_light(c.x, c.y, c.z, solid_side, section);
+        vert.light         = corner_light(c.x, c.y, c.z, face_side, section);
         vertices.push_back(vert);
     }
 
@@ -204,21 +213,27 @@ ENGINE_MESH_NOINLINE void emit_quad(
     indices.push_back(base + 3);
 }
 
-uint32_t mask_key(const VoxelSample& solid_side) {
-    return (static_cast<uint32_t>(block_id(solid_side.block)) << 16)
-         | (static_cast<uint32_t>(solid_side.sky_light) << 8)
-         | static_cast<uint32_t>(solid_side.block_light);
+uint32_t mask_key(const VoxelSample& face_side) {
+    return (static_cast<uint32_t>(block_id(face_side.block)) << 16)
+         | (static_cast<uint32_t>(face_side.sky_light) << 8)
+         | static_cast<uint32_t>(face_side.block_light);
 }
 
-} // namespace
+using FacePredicate = bool (*)(const VoxelSample&);
 
-MeshSectionResult mesh_section(
+bool opaque_face_predicate(const VoxelSample& sample) {
+    return sample.opaque_solid;
+}
+
+bool water_face_predicate(const VoxelSample& sample) {
+    return sample.water;
+}
+
+ENGINE_MESH_NOINLINE void mesh_section_layer(
     const Section& section,
+    FacePredicate face_predicate,
     std::vector<TerrainVertex>& vertices,
     std::vector<uint32_t>& indices) {
-    vertices.clear();
-    indices.clear();
-
     std::vector<uint32_t> mask(static_cast<size_t>(SECTION_DIM * SECTION_DIM), 0u);
 
     for (int axis = 0; axis < 3; ++axis) {
@@ -230,8 +245,10 @@ MeshSectionResult mesh_section(
                         const VoxelSample a = sample_axis(section, axis, slice - 1, u, v);
                         const VoxelSample b = sample_axis(section, axis, slice, u, v);
 
-                        const bool emit_positive = a.solid && !b.solid;
-                        const bool emit_negative = !a.solid && b.solid;
+                        const bool emit_positive =
+                            face_predicate(a) && !face_predicate(b);
+                        const bool emit_negative =
+                            !face_predicate(a) && face_predicate(b);
 
                         if (positive) {
                             mask[static_cast<size_t>(n)] =
@@ -275,13 +292,15 @@ MeshSectionResult mesh_section(
                             ++height;
                         }
 
-                        VoxelSample solid_side{};
-                        solid_side.block = make_block_state(BlockId(current >> 16), 0);
-                        solid_side.sky_light =
+                        VoxelSample face_side{};
+                        face_side.block = make_block_state(BlockId(current >> 16), 0);
+                        face_side.sky_light =
                             static_cast<uint8_t>((current >> 8) & 0xFF);
-                        solid_side.block_light =
+                        face_side.block_light =
                             static_cast<uint8_t>(current & 0xFF);
-                        solid_side.solid = true;
+                        const BlockId face_id = block_id(face_side.block);
+                        face_side.opaque_solid = is_solid(face_id);
+                        face_side.water = is_water(face_id);
 
                         emit_quad(
                             axis,
@@ -291,7 +310,7 @@ MeshSectionResult mesh_section(
                             v,
                             width,
                             height,
-                            solid_side,
+                            face_side,
                             section,
                             vertices,
                             indices);
@@ -309,8 +328,30 @@ MeshSectionResult mesh_section(
             }
         }
     }
+}
 
-    return MeshSectionResult{vertices.size(), indices.size()};
+} // namespace
+
+MeshSectionResult mesh_section(
+    const Section& section,
+    std::vector<TerrainVertex>& opaque_vertices,
+    std::vector<uint32_t>& opaque_indices,
+    std::vector<TerrainVertex>& water_vertices,
+    std::vector<uint32_t>& water_indices) {
+    opaque_vertices.clear();
+    opaque_indices.clear();
+    water_vertices.clear();
+    water_indices.clear();
+
+    mesh_section_layer(section, opaque_face_predicate, opaque_vertices, opaque_indices);
+    mesh_section_layer(section, water_face_predicate, water_vertices, water_indices);
+
+    return MeshSectionResult{
+        opaque_vertices.size(),
+        opaque_indices.size(),
+        water_vertices.size(),
+        water_indices.size(),
+    };
 }
 
 } // namespace engine

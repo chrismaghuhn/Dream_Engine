@@ -33,7 +33,10 @@ set(ENGINE_RENDER_SOURCES
     render/GpuDeferredFreeQueue.cpp
     render/GpuMeshPool.cpp
     render/MeshUploadQueue.cpp
+    render/ShaderManager.cpp
     render/TerrainPass.cpp
+    render/SkyPass.cpp
+    render/WaterPass.cpp
     render/PerFrameGpuWrites.cpp
     render/HostMemory.cpp
     render/StagingRing.cpp
@@ -54,6 +57,7 @@ target_link_libraries(engine_render PUBLIC
 )
 target_compile_definitions(engine_render PUBLIC
     ENGINE_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"
+    ENGINE_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/shaders"
 )
 add_dependencies(engine_render shaders_spv)
 target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_DIR}/include)

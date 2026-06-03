@@ -22,29 +22,52 @@ void fill_solid(engine::Section& section, int x, int y, int z) {
     section.occupancy.set(x, y, z, true);
 }
 
+void fill_water(engine::Section& section, int x, int y, int z) {
+    const engine::BlockState water = engine::make_block_state(engine::BLOCK_WATER, 0);
+    REQUIRE(section.write_block(x, y, z, water));
+}
+
+engine::MeshSectionResult mesh_both(engine::Section& section,
+                                    std::vector<engine::TerrainVertex>& opaque_vertices,
+                                    std::vector<uint32_t>& opaque_indices,
+                                    std::vector<engine::TerrainVertex>& water_vertices,
+                                    std::vector<uint32_t>& water_indices) {
+    return engine::mesh_section(
+        section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+}
+
 } // namespace
 
 TEST_CASE("greedy mesher empty section returns no geometry") {
     engine::Section section;
-    std::vector<engine::TerrainVertex> vertices;
-    std::vector<uint32_t> indices;
-    const engine::MeshSectionResult result = engine::mesh_section(section, vertices, indices);
-    REQUIRE(result.vertex_count == 0);
-    REQUIRE(result.index_count == 0);
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    const engine::MeshSectionResult result =
+        mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+    REQUIRE(result.opaque_vertex_count == 0);
+    REQUIRE(result.opaque_index_count == 0);
+    REQUIRE(result.water_vertex_count == 0);
+    REQUIRE(result.water_index_count == 0);
 }
 
 TEST_CASE("greedy mesher 1 cubed solid has 6 faces") {
     engine::Section section;
     fill_solid(section, 0, 0, 0);
 
-    std::vector<engine::TerrainVertex> vertices;
-    std::vector<uint32_t> indices;
-    const engine::MeshSectionResult result = engine::mesh_section(section, vertices, indices);
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    const engine::MeshSectionResult result =
+        mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
 
-    REQUIRE(result.vertex_count == 24);
-    REQUIRE(result.index_count == 36);
-    REQUIRE(face_count(vertices) == 6);
-    REQUIRE(quad_count(indices) == 6);
+    REQUIRE(result.opaque_vertex_count == 24);
+    REQUIRE(result.opaque_index_count == 36);
+    REQUIRE(face_count(opaque_vertices) == 6);
+    REQUIRE(quad_count(opaque_indices) == 6);
+    REQUIRE(water_vertices.empty());
 }
 
 TEST_CASE("greedy mesher adjacent solids cull shared face") {
@@ -52,13 +75,44 @@ TEST_CASE("greedy mesher adjacent solids cull shared face") {
     fill_solid(section, 0, 0, 0);
     fill_solid(section, 1, 0, 0);
 
-    std::vector<engine::TerrainVertex> vertices;
-    std::vector<uint32_t> indices;
-    engine::mesh_section(section, vertices, indices);
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
 
-    // Greedy merge combines coplanar neighbors: 1x2 bar has 6 exterior faces, not 10.
-    REQUIRE(face_count(vertices) == 6);
-    REQUIRE(quad_count(indices) == 6);
+    REQUIRE(face_count(opaque_vertices) == 6);
+    REQUIRE(quad_count(opaque_indices) == 6);
+}
+
+TEST_CASE("greedy mesher adjacent water culls shared face") {
+    engine::Section section;
+    fill_water(section, 0, 0, 0);
+    fill_water(section, 1, 0, 0);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    REQUIRE(face_count(water_vertices) == 6);
+    REQUIRE(quad_count(water_indices) == 6);
+    REQUIRE(opaque_vertices.empty());
+}
+
+TEST_CASE("greedy mesher water against air emits faces") {
+    engine::Section section;
+    fill_water(section, 0, 0, 0);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    REQUIRE(face_count(water_vertices) == 6);
+    REQUIRE(opaque_vertices.empty());
 }
 
 TEST_CASE("greedy mesher border neighbor solid culls exterior face") {
@@ -71,11 +125,13 @@ TEST_CASE("greedy mesher border neighbor solid culls exterior face") {
     neighbor.sky_light   = 0;
     neighbor.block_light = 0;
 
-    std::vector<engine::TerrainVertex> vertices;
-    std::vector<uint32_t> indices;
-    engine::mesh_section(section, vertices, indices);
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
 
-    REQUIRE(face_count(vertices) == 5);
+    REQUIRE(face_count(opaque_vertices) == 5);
 }
 
 TEST_CASE("greedy mesher border light copied to edge vertex nibbles") {
@@ -88,14 +144,16 @@ TEST_CASE("greedy mesher border light copied to edge vertex nibbles") {
         cell.block_light = 5;
     }
 
-    std::vector<engine::TerrainVertex> vertices;
-    std::vector<uint32_t> indices;
-    engine::mesh_section(section, vertices, indices);
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
 
     const uint8_t expected = static_cast<uint8_t>((10 << 4) | 5);
     bool found_px_face       = false;
 
-    for (const engine::TerrainVertex& v : vertices) {
+    for (const engine::TerrainVertex& v : opaque_vertices) {
         const uint32_t face_bits = (v.packed_position_normal >> 15) & 7u;
         if (face_bits != static_cast<uint32_t>(engine::Face::PX)) {
             continue;

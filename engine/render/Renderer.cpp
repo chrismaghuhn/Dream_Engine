@@ -21,6 +21,10 @@ constexpr std::array<float, 4> kClearColor = {0.08f, 0.10f, 0.14f, 1.0f};
 #define ENGINE_SHADER_DIR "."
 #endif
 
+#ifndef ENGINE_SHADER_SOURCE_DIR
+#define ENGINE_SHADER_SOURCE_DIR "."
+#endif
+
 [[nodiscard]] std::uint32_t find_memory_type(VkPhysicalDevice physical_device,
                                              std::uint32_t type_filter,
                                              VkMemoryPropertyFlags properties) {
@@ -112,11 +116,52 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
                                                                sizeof(TerrainPass::FrameUniformGpu));
     per_frame_writes_->init(context_.device(), context_.physical_device());
 
-    if (!terrain_pass_.init(context_,
-                            render_pass_,
-                            std::filesystem::path(ENGINE_SHADER_DIR),
-                            *per_frame_writes_)) {
+    const std::filesystem::path shader_dir = std::filesystem::path(ENGINE_SHADER_DIR);
+    const std::filesystem::path shader_source_dir = std::filesystem::path(ENGINE_SHADER_SOURCE_DIR);
+    shader_manager_.init(shader_source_dir, shader_dir);
+    shader_manager_.register_shader(
+        "terrain",
+        ShaderManager::ShaderSource{
+            .vert = shader_source_dir / "terrain.vert",
+            .frag = shader_source_dir / "terrain.frag",
+            .vert_spv = shader_dir / "terrain.vert.spv",
+            .frag_spv = shader_dir / "terrain.frag.spv",
+        });
+    shader_manager_.register_shader(
+        "sky",
+        ShaderManager::ShaderSource{
+            .vert = shader_source_dir / "sky.vert",
+            .frag = shader_source_dir / "sky.frag",
+            .vert_spv = shader_dir / "sky.vert.spv",
+            .frag_spv = shader_dir / "sky.frag.spv",
+        });
+    shader_manager_.register_shader(
+        "water",
+        ShaderManager::ShaderSource{
+            .vert = shader_source_dir / "water.vert",
+            .frag = shader_source_dir / "water.frag",
+            .vert_spv = shader_dir / "water.vert.spv",
+            .frag_spv = shader_dir / "water.frag.spv",
+        });
+
+    if (!terrain_pass_.init(context_, render_pass_, shader_dir, *per_frame_writes_)) {
         SPDLOG_ERROR("Failed to initialize terrain pass");
+        shutdown();
+        return false;
+    }
+
+    if (!sky_pass_.init(context_, render_pass_, shader_dir)) {
+        SPDLOG_ERROR("Failed to initialize sky pass");
+        shutdown();
+        return false;
+    }
+
+    if (!water_pass_.init(context_,
+                          render_pass_,
+                          shader_dir,
+                          *per_frame_writes_,
+                          terrain_pass_.descriptor_layout())) {
+        SPDLOG_ERROR("Failed to initialize water pass");
         shutdown();
         return false;
     }
@@ -138,7 +183,10 @@ void Renderer::shutdown() {
         vkDeviceWaitIdle(context_.device());
     }
 
+    sky_pass_.shutdown();
+    water_pass_.shutdown();
     terrain_pass_.shutdown();
+    shader_manager_.shutdown();
     per_frame_writes_.reset();
     mesh_upload_queue_.reset();
     mesh_pool_.shutdown();
@@ -186,6 +234,11 @@ void Renderer::render_frame(const std::uint32_t snapshot_slot) {
     }
 
     process_deferred_frees();
+    shader_manager_.poll_hot_reload();
+    if (shader_manager_.shaders_dirty()) {
+        recreate_render_passes();
+        shader_manager_.clear_dirty();
+    }
 
     const WorldRenderSnapshot& snapshot = snapshot_ring_.snapshot(snapshot_slot);
     frame_uniforms_.view = snapshot.view;
@@ -243,8 +296,11 @@ void Renderer::record_frame(const std::uint32_t image_index, const std::uint32_t
         .proj = frame_uniforms_.proj,
         .render_origin = glm::vec4(frame_uniforms_.render_origin, 0.f),
     };
+    const std::size_t opaque_draw_count = snapshot.opaque_sections.size();
+
     terrain_pass_.write_frame_uniforms(frame_index_, uniforms);
     terrain_pass_.write_indirect_commands(frame_index_, snapshot);
+    water_pass_.write_indirect_commands(frame_index_, snapshot, opaque_draw_count);
 
     const VkClearValue clear_values[] = {
         {.color = {{kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3]}}},
@@ -262,6 +318,14 @@ void Renderer::record_frame(const std::uint32_t image_index, const std::uint32_t
     vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
     terrain_pass_.record(
         command_buffer, frame_index_, snapshot, mesh_pool_, context_.swapchain_extent());
+    sky_pass_.record(command_buffer, context_.swapchain_extent());
+    water_pass_.record(command_buffer,
+                       frame_index_,
+                       snapshot,
+                       mesh_pool_,
+                       terrain_pass_.frame_descriptor_set(frame_index_),
+                       context_.swapchain_extent(),
+                       opaque_draw_count);
     if (ui_host_ != nullptr) {
         ui_host_->render(command_buffer);
     }
@@ -339,18 +403,38 @@ void Renderer::recreate_swapchain() {
         SPDLOG_ERROR("Failed to recreate command buffers");
     }
 
-    if (per_frame_writes_ != nullptr) {
-        terrain_pass_.shutdown();
-        if (!terrain_pass_.init(context_,
-                                render_pass_,
-                                std::filesystem::path(ENGINE_SHADER_DIR),
-                                *per_frame_writes_)) {
-            SPDLOG_ERROR("Failed to recreate terrain pass");
-        }
-    }
+    recreate_render_passes();
 
     if (ui_host_ != nullptr) {
         ui_host_->on_swapchain_recreated(*this);
+    }
+}
+
+void Renderer::recreate_render_passes() {
+    if (per_frame_writes_ == nullptr || render_pass_ == VK_NULL_HANDLE) {
+        return;
+    }
+
+    const std::filesystem::path shader_dir = std::filesystem::path(ENGINE_SHADER_DIR);
+
+    sky_pass_.shutdown();
+    water_pass_.shutdown();
+    terrain_pass_.shutdown();
+
+    if (!terrain_pass_.init(context_, render_pass_, shader_dir, *per_frame_writes_)) {
+        SPDLOG_ERROR("Failed to recreate terrain pass");
+        return;
+    }
+    if (!sky_pass_.init(context_, render_pass_, shader_dir)) {
+        SPDLOG_ERROR("Failed to recreate sky pass");
+        return;
+    }
+    if (!water_pass_.init(context_,
+                          render_pass_,
+                          shader_dir,
+                          *per_frame_writes_,
+                          terrain_pass_.descriptor_layout())) {
+        SPDLOG_ERROR("Failed to recreate water pass");
     }
 }
 

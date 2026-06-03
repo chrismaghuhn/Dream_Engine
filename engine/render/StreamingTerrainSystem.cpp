@@ -7,7 +7,17 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+
 namespace engine {
+
+namespace {
+
+[[nodiscard]] float section_center_distance(const DrawSection& section) {
+    return glm::length(section.model_translation + glm::vec3(8.f));
+}
+
+} // namespace
 
 void StreamingTerrainSystem::init(
     flecs::world& world, ChunkStore& store, JobSystem& jobs, const WorldConfig& world_config) {
@@ -17,7 +27,8 @@ void StreamingTerrainSystem::init(
     world_config_ = world_config;
     chunk_meshes_.clear();
     completions_.clear();
-    culled_sections_.clear();
+    culled_opaque_sections_.clear();
+    culled_water_sections_.clear();
 }
 
 void StreamingTerrainSystem::register_observers(flecs::world& world) {
@@ -82,10 +93,12 @@ void StreamingTerrainSystem::schedule_section_mesh(const ChunkCoord coord, const
         MeshCompletion completion{
             .coord = coord,
             .section_index = section_index,
-            .vertices = {},
-            .indices = {},
         };
-        mesh_section(section_copy, completion.vertices, completion.indices);
+        mesh_section(section_copy,
+                     completion.opaque_vertices,
+                     completion.opaque_indices,
+                     completion.water_vertices,
+                     completion.water_indices);
 
         std::lock_guard lock(completion_mutex_);
         completions_.push_back(std::move(completion));
@@ -108,16 +121,25 @@ void StreamingTerrainSystem::drain_mesh_completions() {
         chunk_state.coord = completion.coord;
         SectionMeshState& section_state = chunk_state.sections[completion.section_index];
         section_state.section_index = completion.section_index;
-        section_state.vertices = std::move(completion.vertices);
-        section_state.indices = std::move(completion.indices);
-        section_state.index_count = static_cast<std::uint32_t>(section_state.indices.size());
+        section_state.opaque_vertices = std::move(completion.opaque_vertices);
+        section_state.opaque_indices = std::move(completion.opaque_indices);
+        section_state.water_vertices = std::move(completion.water_vertices);
+        section_state.water_indices = std::move(completion.water_indices);
+        section_state.opaque_index_count = static_cast<std::uint32_t>(section_state.opaque_indices.size());
+        section_state.water_index_count = static_cast<std::uint32_t>(section_state.water_indices.size());
         section_state.mesh_ready = true;
         section_state.mesh_job_pending = false;
-        section_state.gpu_allocated = false;
-        section_state.upload_queued = false;
-        if (section_state.gpu_slot_id != 0) {
-            pending_slot_frees_.push_back(section_state.gpu_slot_id);
-            section_state.gpu_slot_id = 0;
+        section_state.opaque_gpu_allocated = false;
+        section_state.water_gpu_allocated = false;
+        section_state.opaque_upload_queued = false;
+        section_state.water_upload_queued = false;
+        if (section_state.opaque_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.opaque_gpu_slot_id);
+            section_state.opaque_gpu_slot_id = 0;
+        }
+        if (section_state.water_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.water_gpu_slot_id);
+            section_state.water_gpu_slot_id = 0;
         }
     }
 }
@@ -131,18 +153,32 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool, const std:
 
         bool slots_changed = false;
         for (SectionMeshState& section_state : chunk_state.sections) {
-            if (!section_state.mesh_ready || section_state.gpu_allocated || section_state.vertices.empty() ||
-                section_state.indices.empty()) {
+            if (!section_state.mesh_ready) {
                 continue;
             }
 
-            const std::size_t vertex_bytes = section_state.vertices.size() * sizeof(TerrainVertex);
-            const std::size_t index_bytes = section_state.indices.size() * sizeof(std::uint32_t);
-            const std::uint32_t slot_id = mesh_pool.allocate(vertex_bytes, index_bytes);
-            if (slot_id != 0) {
-                section_state.gpu_slot_id = slot_id;
-                section_state.gpu_allocated = true;
-                slots_changed = true;
+            if (!section_state.opaque_gpu_allocated && !section_state.opaque_vertices.empty() &&
+                !section_state.opaque_indices.empty()) {
+                const std::size_t vertex_bytes = section_state.opaque_vertices.size() * sizeof(TerrainVertex);
+                const std::size_t index_bytes = section_state.opaque_indices.size() * sizeof(std::uint32_t);
+                const std::uint32_t slot_id = mesh_pool.allocate(vertex_bytes, index_bytes);
+                if (slot_id != 0) {
+                    section_state.opaque_gpu_slot_id = slot_id;
+                    section_state.opaque_gpu_allocated = true;
+                    slots_changed = true;
+                }
+            }
+
+            if (!section_state.water_gpu_allocated && !section_state.water_vertices.empty() &&
+                !section_state.water_indices.empty()) {
+                const std::size_t vertex_bytes = section_state.water_vertices.size() * sizeof(TerrainVertex);
+                const std::size_t index_bytes = section_state.water_indices.size() * sizeof(std::uint32_t);
+                const std::uint32_t slot_id = mesh_pool.allocate(vertex_bytes, index_bytes);
+                if (slot_id != 0) {
+                    section_state.water_gpu_slot_id = slot_id;
+                    section_state.water_gpu_allocated = true;
+                    slots_changed = true;
+                }
             }
         }
 
@@ -159,17 +195,25 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue) {
         }
 
         for (SectionMeshState& section_state : chunk_state.sections) {
-            if (!section_state.gpu_allocated || section_state.upload_queued || section_state.gpu_slot_id == 0 ||
-                section_state.vertices.empty()) {
-                continue;
+            if (section_state.opaque_gpu_allocated && !section_state.opaque_upload_queued &&
+                section_state.opaque_gpu_slot_id != 0 && !section_state.opaque_vertices.empty()) {
+                upload_queue.enqueue(MeshUploadRequest{
+                    .slot_id = section_state.opaque_gpu_slot_id,
+                    .vertices = section_state.opaque_vertices,
+                    .indices = section_state.opaque_indices,
+                });
+                section_state.opaque_upload_queued = true;
             }
 
-            upload_queue.enqueue(MeshUploadRequest{
-                .slot_id = section_state.gpu_slot_id,
-                .vertices = section_state.vertices,
-                .indices = section_state.indices,
-            });
-            section_state.upload_queued = true;
+            if (section_state.water_gpu_allocated && !section_state.water_upload_queued &&
+                section_state.water_gpu_slot_id != 0 && !section_state.water_vertices.empty()) {
+                upload_queue.enqueue(MeshUploadRequest{
+                    .slot_id = section_state.water_gpu_slot_id,
+                    .vertices = section_state.water_vertices,
+                    .indices = section_state.water_indices,
+                });
+                section_state.water_upload_queued = true;
+            }
         }
     }
 }
@@ -191,8 +235,8 @@ void StreamingTerrainSystem::sync_entity_mesh_slots(const ChunkCoord coord, cons
 
     ChunkMeshSlots slots{};
     for (const SectionMeshState& section_state : state.sections) {
-        if (section_state.gpu_slot_id != 0) {
-            slots.section_slot_ids[section_state.section_index] = section_state.gpu_slot_id;
+        if (section_state.opaque_gpu_slot_id != 0) {
+            slots.section_slot_ids[section_state.section_index] = section_state.opaque_gpu_slot_id;
         }
     }
     entity.set<ChunkMeshSlots>(slots);
@@ -214,12 +258,16 @@ void StreamingTerrainSystem::on_frame(const std::uint64_t frame_index,
 void StreamingTerrainSystem::build_snapshot(
     WorldRenderSnapshot& snapshot, const glm::vec3& render_origin, ChunkStore& store) {
     snapshot.opaque_sections.clear();
-    culled_sections_.clear();
+    snapshot.water_sections.clear();
+    culled_opaque_sections_.clear();
+    culled_water_sections_.clear();
 
     const glm::mat4 view_proj = snapshot.proj * snapshot.view;
     const std::array<glm::vec4, 6> frustum_planes = frustum_planes_from_matrix(view_proj);
 
-    std::uint32_t indirect_index = 0;
+    std::uint32_t opaque_indirect_index = 0;
+    std::uint32_t water_indirect_index = 0;
+
     store.for_each_loaded([&](const ChunkCoord coord) {
         if (store.is_pending_unload(coord)) {
             return;
@@ -234,10 +282,6 @@ void StreamingTerrainSystem::build_snapshot(
         const glm::vec3 chunk_origin_world = glm::vec3(coord) * 32.f;
 
         for (const SectionMeshState& section_state : chunk_state.sections) {
-            if (!section_state.upload_queued || section_state.gpu_slot_id == 0 || section_state.index_count == 0) {
-                continue;
-            }
-
             const glm::ivec3 section_coord = section_coord_from_index(section_state.section_index);
             const glm::vec3 section_offset = glm::vec3(section_coord) * 16.f;
             const glm::vec3 model_translation = chunk_origin_world + section_offset - render_origin;
@@ -248,21 +292,46 @@ void StreamingTerrainSystem::build_snapshot(
                 continue;
             }
 
-            culled_sections_.push_back(DrawSection{
-                .coord = coord,
-                .section_index = section_state.section_index,
-                .model_translation = model_translation,
-                .indirect_index = indirect_index++,
-                .vertex_buffer_id = section_state.gpu_slot_id,
-                .index_buffer_id = section_state.gpu_slot_id,
-                .index_count = section_state.index_count,
-                .cull_min = cull_min,
-                .cull_max = cull_max,
-            });
+            if (section_state.opaque_upload_queued && section_state.opaque_gpu_slot_id != 0 &&
+                section_state.opaque_index_count > 0) {
+                culled_opaque_sections_.push_back(DrawSection{
+                    .coord = coord,
+                    .section_index = section_state.section_index,
+                    .model_translation = model_translation,
+                    .indirect_index = opaque_indirect_index++,
+                    .vertex_buffer_id = section_state.opaque_gpu_slot_id,
+                    .index_buffer_id = section_state.opaque_gpu_slot_id,
+                    .index_count = section_state.opaque_index_count,
+                    .cull_min = cull_min,
+                    .cull_max = cull_max,
+                });
+            }
+
+            if (section_state.water_upload_queued && section_state.water_gpu_slot_id != 0 &&
+                section_state.water_index_count > 0) {
+                culled_water_sections_.push_back(DrawSection{
+                    .coord = coord,
+                    .section_index = section_state.section_index,
+                    .model_translation = model_translation,
+                    .indirect_index = water_indirect_index++,
+                    .vertex_buffer_id = section_state.water_gpu_slot_id,
+                    .index_buffer_id = section_state.water_gpu_slot_id,
+                    .index_count = section_state.water_index_count,
+                    .cull_min = cull_min,
+                    .cull_max = cull_max,
+                });
+            }
         }
     });
 
-    snapshot.opaque_sections.swap(culled_sections_);
+    std::sort(culled_water_sections_.begin(),
+              culled_water_sections_.end(),
+              [](const DrawSection& a, const DrawSection& b) {
+                  return section_center_distance(a) > section_center_distance(b);
+              });
+
+    snapshot.opaque_sections.swap(culled_opaque_sections_);
+    snapshot.water_sections.swap(culled_water_sections_);
 }
 
 } // namespace engine

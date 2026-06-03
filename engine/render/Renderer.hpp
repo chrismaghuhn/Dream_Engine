@@ -6,7 +6,10 @@
 #include "engine/render/MeshUploadQueue.hpp"
 #include "engine/render/PerFrameGpuWrites.hpp"
 #include "engine/render/SnapshotRing.hpp"
+#include "engine/render/ShaderManager.hpp"
+#include "engine/render/SkyPass.hpp"
 #include "engine/render/TerrainPass.hpp"
+#include "engine/render/WaterPass.hpp"
 #include "engine/render/VulkanContext.hpp"
 
 #include <cstdint>
@@ -25,7 +28,7 @@ class UiHost;
 class Renderer {
 public:
     static constexpr std::uint32_t kFramesInFlight = 2;
-    static constexpr std::size_t kMaxIndirectDraws = 256;
+    static constexpr std::size_t kMaxIndirectDraws = 512;
 
     Renderer() = default;
     ~Renderer();
@@ -68,6 +71,7 @@ private:
     void destroy_swapchain_resources();
     void recreate_swapchain();
     void process_deferred_frees();
+    void recreate_render_passes();
 
     bool begin_frame(std::uint32_t& image_index);
     void end_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
@@ -80,6 +84,9 @@ private:
     std::unique_ptr<MeshUploadQueue> mesh_upload_queue_;
     std::unique_ptr<PerFrameGpuWriteRing> per_frame_writes_;
     TerrainPass terrain_pass_{};
+    SkyPass sky_pass_{};
+    WaterPass water_pass_{};
+    ShaderManager shader_manager_{};
 
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
     VkImage depth_image_ = VK_NULL_HANDLE;

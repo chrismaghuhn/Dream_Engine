@@ -1,36 +1,36 @@
-find_program(GLSLC glslc
-    HINTS
-        "$ENV{VULKAN_SDK}/Bin"
-        "$ENV{VULKAN_SDK}/bin"
-    REQUIRED
-)
-
-if(NOT GLSLC)
-    message(FATAL_ERROR "glslc not found. Install the Vulkan SDK and set VULKAN_SDK.")
-endif()
-
-set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
-file(MAKE_DIRECTORY "${SHADER_OUTPUT_DIR}")
-
-set(TERRAIN_VERT "${CMAKE_CURRENT_SOURCE_DIR}/terrain.vert")
-set(TERRAIN_FRAG "${CMAKE_CURRENT_SOURCE_DIR}/terrain.frag")
-set(TERRAIN_VERT_SPV "${SHADER_OUTPUT_DIR}/terrain.vert.spv")
-set(TERRAIN_FRAG_SPV "${SHADER_OUTPUT_DIR}/terrain.frag.spv")
-
-add_custom_command(
-    OUTPUT "${TERRAIN_VERT_SPV}"
-    COMMAND "${GLSLC}" -fshader-stage=vert "${TERRAIN_VERT}" -o "${TERRAIN_VERT_SPV}"
-    DEPENDS "${TERRAIN_VERT}"
-    COMMENT "Compiling terrain.vert"
-    VERBATIM
-)
-
-add_custom_command(
-    OUTPUT "${TERRAIN_FRAG_SPV}"
-    COMMAND "${GLSLC}" -fshader-stage=frag "${TERRAIN_FRAG}" -o "${TERRAIN_FRAG_SPV}"
-    DEPENDS "${TERRAIN_FRAG}"
-    COMMENT "Compiling terrain.frag"
-    VERBATIM
-)
-
-add_custom_target(shaders_spv DEPENDS "${TERRAIN_VERT_SPV}" "${TERRAIN_FRAG_SPV}")
+find_program(GLSLC glslc
+    HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/bin"
+    REQUIRED
+)
+
+if(NOT GLSLC)
+    message(FATAL_ERROR "glslc not found. Install the Vulkan SDK and set VULKAN_SDK.")
+endif()
+
+set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY "${SHADER_OUTPUT_DIR}")
+
+function(engine_add_shader target_name stage source_file)
+    get_filename_component(source_name "${source_file}" NAME)
+    set(output_spv "${SHADER_OUTPUT_DIR}/${source_name}.spv")
+    add_custom_command(
+        OUTPUT "${output_spv}"
+        COMMAND "${GLSLC}" -fshader-stage=${stage} "${source_file}" -o "${output_spv}"
+        DEPENDS "${source_file}"
+        COMMENT "Compiling ${source_name}"
+        VERBATIM
+    )
+    set_property(GLOBAL APPEND PROPERTY ENGINE_SHADER_SPV_OUTPUTS "${output_spv}")
+endfunction()
+
+engine_add_shader(terrain vert "${CMAKE_CURRENT_SOURCE_DIR}/terrain.vert")
+engine_add_shader(terrain frag "${CMAKE_CURRENT_SOURCE_DIR}/terrain.frag")
+engine_add_shader(sky vert "${CMAKE_CURRENT_SOURCE_DIR}/sky.vert")
+engine_add_shader(sky frag "${CMAKE_CURRENT_SOURCE_DIR}/sky.frag")
+engine_add_shader(water vert "${CMAKE_CURRENT_SOURCE_DIR}/water.vert")
+engine_add_shader(water frag "${CMAKE_CURRENT_SOURCE_DIR}/water.frag")
+
+get_property(ENGINE_SHADER_SPV_OUTPUTS GLOBAL PROPERTY ENGINE_SHADER_SPV_OUTPUTS)
+add_custom_target(shaders_spv DEPENDS ${ENGINE_SHADER_SPV_OUTPUTS})

@@ -14,4 +14,8 @@ inline bool is_solid(BlockId id) {
     return id != BLOCK_AIR && id != BLOCK_WATER;
 }
 
+inline bool is_water(BlockId id) {
+    return id == BLOCK_WATER;
+}
+
 } // namespace engine
