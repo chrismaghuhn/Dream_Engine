@@ -27,6 +27,16 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 
+# --- M0-4 ---
+
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG        v3.4.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(tomlplusplus)
+
 # --- Later milestones (not fetched in P0) ---
 # FetchContent_Declare(flecs  GIT_REPOSITORY https://github.com/SanderMertens/flecs.git  GIT_TAG v4.0.0)
 # FetchContent_Declare(glfw   GIT_REPOSITORY https://github.com/glfw/glfw.git           GIT_TAG 3.4)
