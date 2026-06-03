@@ -21,6 +21,7 @@ add_executable(engine_tests
     gameplay/test_block_events.cpp
     audio/test_occlusion_grid.cpp
     physics/test_capsule_resolver.cpp
+    physics/test_physics_system_jolt.cpp
     persist/test_minimal_save.cpp
     persist/test_region_save.cpp
     persist/test_player_dat_inventory.cpp

@@ -3,8 +3,8 @@
 #include <spdlog/spdlog.h>
 
 #if defined(ENGINE_HAS_JOLT)
-#include <Jolt/Core/Factory.h>
 #include <Jolt/Jolt.h>
+#include <Jolt/Core/Factory.h>
 #include <Jolt/RegisterTypes.h>
 #endif
 

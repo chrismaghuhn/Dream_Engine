@@ -185,12 +185,16 @@ if(ENGINE_JOLT)
     set(TARGET_TEST_ALL OFF CACHE BOOL "" FORCE)
     set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
     set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+    set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
     FetchContent_Declare(
         JoltPhysics
         GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
         GIT_TAG        v5.2.0
         GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  Build
     )
     FetchContent_MakeAvailable(JoltPhysics)
     if(TARGET Jolt)
