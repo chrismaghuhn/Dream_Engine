@@ -21,6 +21,7 @@ public:
 
     void set_fences(VkDevice device, const VkFence* frame_submit_fences);
     void set_fence_checker(std::function<bool(std::uint32_t ring_index)> is_signaled);
+    void set_free_callback(FreeCallback on_free);
 
     void enqueue_free(std::uint32_t slot_id, std::uint64_t last_used_frame);
     void process_completed();

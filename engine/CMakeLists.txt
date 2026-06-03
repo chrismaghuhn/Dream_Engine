@@ -11,6 +11,7 @@ set(ENGINE_CORE_SOURCES
     world/StreamingConfig.cpp
     world/StreamingSystem.cpp
     world/GreedyMesher.cpp
+    render/ThinTerrainPreview.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     Engine.cpp
@@ -29,6 +30,9 @@ set(ENGINE_RENDER_SOURCES
     render/VulkanDebug.cpp
     render/SnapshotRing.cpp
     render/GpuDeferredFreeQueue.cpp
+    render/GpuMeshPool.cpp
+    render/MeshUploadQueue.cpp
+    render/TerrainPass.cpp
     render/PerFrameGpuWrites.cpp
     render/HostMemory.cpp
     render/StagingRing.cpp
@@ -45,6 +49,10 @@ target_link_libraries(engine_render PUBLIC
     volk
     Vulkan::Vulkan
 )
+target_compile_definitions(engine_render PUBLIC
+    ENGINE_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"
+)
+add_dependencies(engine_render shaders_spv)
 target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_DIR}/include)
 
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})

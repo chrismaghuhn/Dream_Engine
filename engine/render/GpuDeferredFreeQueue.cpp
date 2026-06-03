@@ -22,6 +22,10 @@ void GpuDeferredFreeQueue::set_fence_checker(std::function<bool(std::uint32_t ri
     frame_submit_fences_ = nullptr;
 }
 
+void GpuDeferredFreeQueue::set_free_callback(FreeCallback on_free) {
+    on_free_ = std::move(on_free);
+}
+
 void GpuDeferredFreeQueue::enqueue_free(std::uint32_t slot_id, std::uint64_t last_used_frame) {
     pending_.push_back(PendingGpuFree{slot_id, last_used_frame});
 }

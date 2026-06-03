@@ -4,6 +4,7 @@
 #include "engine/core/JobSystem.hpp"
 #include "engine/platform/Input.hpp"
 #include "engine/platform/Platform.hpp"
+#include "engine/render/ThinTerrainPreview.hpp"
 #include "engine/render/Renderer.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/OriginRebase.hpp"
@@ -42,6 +43,7 @@ private:
     Renderer renderer_{};
     OriginRebase origin_rebase_{};
     ChunkStore chunk_store_{};
+    ThinTerrainPreview thin_terrain_{};
     flecs::world world_{};
     flecs::entity player_fly_{};
     std::uint64_t frame_index_ = 0;

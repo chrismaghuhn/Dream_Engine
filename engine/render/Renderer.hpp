@@ -1,10 +1,17 @@
 #pragma once
 
 #include "engine/core/EngineConfig.hpp"
+#include "engine/render/GpuDeferredFreeQueue.hpp"
+#include "engine/render/GpuMeshPool.hpp"
+#include "engine/render/MeshUploadQueue.hpp"
+#include "engine/render/PerFrameGpuWrites.hpp"
 #include "engine/render/SnapshotRing.hpp"
+#include "engine/render/TerrainPass.hpp"
 #include "engine/render/VulkanContext.hpp"
 
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -17,6 +24,7 @@ class Platform;
 class Renderer {
 public:
     static constexpr std::uint32_t kFramesInFlight = 2;
+    static constexpr std::size_t kMaxIndirectDraws = 256;
 
     Renderer() = default;
     ~Renderer();
@@ -24,13 +32,16 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    bool init(Platform& platform);
+    bool init(Platform& platform, const MemoryBudget& memory_budget);
     void shutdown();
 
     [[nodiscard]] bool initialized() const { return initialized_; }
     [[nodiscard]] const GpuCaps& gpu_caps() const { return gpu_caps_; }
     [[nodiscard]] SnapshotRing& snapshot_ring() { return snapshot_ring_; }
+    [[nodiscard]] GpuMeshPool& mesh_pool() { return mesh_pool_; }
+    [[nodiscard]] MeshUploadQueue& mesh_upload_queue() { return *mesh_upload_queue_; }
     [[nodiscard]] float aspect_ratio() const;
+    [[nodiscard]] std::uint64_t frame_index() const { return frame_index_; }
 
     void render_frame(std::uint32_t snapshot_slot);
 
@@ -42,21 +53,32 @@ private:
     };
 
     bool create_render_pass();
+    bool create_depth_resources();
+    void destroy_depth_resources();
     bool create_framebuffers();
     bool create_command_pool_and_buffers();
     bool create_sync_objects();
     void destroy_frame_resources();
     void destroy_swapchain_resources();
     void recreate_swapchain();
+    void process_deferred_frees();
 
     bool begin_frame(std::uint32_t& image_index);
     void end_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
-    void record_clear_pass(std::uint32_t image_index);
+    void record_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
 
     VulkanContext context_{};
     SnapshotRing snapshot_ring_{kFramesInFlight};
+    GpuDeferredFreeQueue deferred_free_{kFramesInFlight};
+    GpuMeshPool mesh_pool_{};
+    std::unique_ptr<MeshUploadQueue> mesh_upload_queue_;
+    std::unique_ptr<PerFrameGpuWriteRing> per_frame_writes_;
+    TerrainPass terrain_pass_{};
 
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
+    VkImage depth_image_ = VK_NULL_HANDLE;
+    VkDeviceMemory depth_memory_ = VK_NULL_HANDLE;
+    VkImageView depth_image_view_ = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> framebuffers_;
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> command_buffers_;
@@ -66,6 +88,7 @@ private:
 
     GpuCaps gpu_caps_{};
     FrameUniformStub frame_uniforms_{};
+    MemoryBudget memory_budget_{};
     std::uint32_t frame_index_ = 0;
     bool initialized_ = false;
 };

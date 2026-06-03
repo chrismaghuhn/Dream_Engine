@@ -4,6 +4,8 @@
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/Log.hpp"
 #include "engine/gameplay/CameraSystem.hpp"
+#include "engine/render/ThinTerrainPreview.hpp"
+#include "engine/render/Renderer.hpp"
 #include "engine/world/StreamingSystem.hpp"
 #include "engine/world/WorldModule.hpp"
 
@@ -68,7 +70,7 @@ bool Engine::startup() {
     input_.set_cursor_captured(platform_.window(), true);
 
     // Step 9: Renderer (Vulkan instance/device/swapchain) -> GpuCaps
-    if (!renderer_.init(platform_)) {
+    if (!renderer_.init(platform_, config_.memory())) {
         SPDLOG_ERROR("Failed to initialize Renderer");
         platform_.shutdown();
         jobs_.shutdown();
@@ -83,6 +85,8 @@ bool Engine::startup() {
                 static_cast<int>(config_.render_preset()));
 
     chunk_store_.init(static_cast<uint32_t>(config_.streaming().max_loaded_chunks));
+    thin_terrain_.init(world_, chunk_store_, config_.world());
+    thin_terrain_.build_cpu_meshes();
     SPDLOG_INFO(
         "ChunkStore init: max {} chunks, streaming radius xz={} y={}",
         config_.streaming().max_loaded_chunks,
@@ -123,6 +127,12 @@ void Engine::render_build(std::uint32_t snapshot_slot) {
     WorldRenderSnapshot& snapshot = renderer_.snapshot_ring().snapshot(snapshot_slot);
     CameraSystem::build_render_snapshot(
         *camera_component, origin_rebase_.render_origin(), aspect_ratio, snapshot, frame_index_);
+
+    thin_terrain_.ensure_gpu_slots(renderer_.mesh_pool(), frame_index_);
+    if (!thin_terrain_.uploads_queued()) {
+        thin_terrain_.queue_uploads(renderer_.mesh_upload_queue());
+    }
+    thin_terrain_.fill_snapshot(snapshot, origin_rebase_.render_origin());
 }
 
 void Engine::run() {

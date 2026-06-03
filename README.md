@@ -2,6 +2,8 @@
 
 ## Build (MSVC)
 
+Requires the [Vulkan SDK](https://vulkan.lunarg.com/) with `glslc` on `PATH` or `VULKAN_SDK` set (CMake fails configure if `glslc` is missing).
+
 ```powershell
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Debug
