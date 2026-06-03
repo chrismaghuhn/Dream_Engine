@@ -100,6 +100,18 @@ void finalize_gpu_budget(MemoryBudget& mem, const GpuCaps& gpu) {
     }
 }
 
+DestructionConfig destruction_config_from_hardware(const CpuHardware& cpu) {
+    const size_t ram = cpu.ram_bytes > 0 ? cpu.ram_bytes : (8ULL * 1024 * 1024 * 1024);
+    constexpr size_t kDebrisBytesEst = 8 * 1024;
+    const int max_debris = static_cast<int>(std::clamp(ram / kDebrisBytesEst, 64ULL, 4096ULL));
+    const int max_depth =
+        ram >= 16ULL * 1024 * 1024 * 1024 ? 4 : ram >= 8ULL * 1024 * 1024 * 1024 ? 3 : 2;
+    return DestructionConfig{
+        .max_active_debris = max_debris,
+        .max_fracture_depth = max_depth,
+    };
+}
+
 ThreadConfig thread_config_from_hardware(const CpuHardware& cpu, const ThreadConfig& overrides) {
     ThreadConfig out{};
     out.worker_threads =
@@ -152,6 +164,15 @@ void EngineConfig::load_toml(const std::string& path) {
     if (const auto* debug = table["debug"].as_table()) {
         creative_place_ = read_bool_or_default(*debug, "creative_place", false);
     }
+
+    if (const auto* engine = table["engine"].as_table()) {
+        if (const auto* destruction = (*engine)["destruction"].as_table()) {
+            destruction_max_active_debris_override_ =
+                read_int_or_default(*destruction, "max_active_debris", 0);
+            destruction_max_fracture_depth_override_ =
+                read_int_or_default(*destruction, "max_fracture_depth", 0);
+        }
+    }
 }
 
 void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
@@ -166,6 +187,13 @@ void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
         streaming_horizontal_override_,
         streaming_vertical_override_,
         streaming_max_chunks_override_);
+    destruction_ = destruction_config_from_hardware(cpu);
+    if (destruction_max_active_debris_override_ > 0) {
+        destruction_.max_active_debris = destruction_max_active_debris_override_;
+    }
+    if (destruction_max_fracture_depth_override_ > 0) {
+        destruction_.max_fracture_depth = destruction_max_fracture_depth_override_;
+    }
     cpu_finalized_ = true;
 }
 

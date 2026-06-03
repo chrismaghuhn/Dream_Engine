@@ -16,6 +16,11 @@ struct ThreadConfig {
     int meshing_threads = 0;
 };
 
+struct DestructionConfig {
+    int max_active_debris = 0;
+    int max_fracture_depth = 0;
+};
+
 enum class RenderPreset { Low, Medium, High };
 
 struct GpuCaps {
@@ -45,6 +50,7 @@ public:
     [[nodiscard]] bool creative_place() const { return creative_place_; }
     [[nodiscard]] const CpuHardware& cpu_hardware() const { return cpu_; }
     [[nodiscard]] RenderPreset render_preset() const { return render_preset_; }
+    [[nodiscard]] const DestructionConfig& destruction() const { return destruction_; }
 
 private:
     ThreadConfig threads_{};
@@ -57,10 +63,14 @@ private:
     bool thin_terrain_preview_ = false;
     bool creative_place_ = false;
     CpuHardware cpu_{};
+    DestructionConfig destruction_{};
+    int destruction_max_active_debris_override_ = 0;
+    int destruction_max_fracture_depth_override_ = 0;
     RenderPreset render_preset_ = RenderPreset::Medium;
     bool cpu_finalized_ = false;
 };
 
 ThreadConfig thread_config_from_hardware(const CpuHardware& cpu, const ThreadConfig& overrides);
+DestructionConfig destruction_config_from_hardware(const CpuHardware& cpu);
 
 } // namespace engine

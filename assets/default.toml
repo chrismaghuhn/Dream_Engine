@@ -7,6 +7,11 @@ worker = 0
 io = 0
 meshing = 0
 
+[engine.destruction]
+# 0 = auto from RAM in finalize_cpu
+max_active_debris = 0
+max_fracture_depth = 0
+
 [world]
 chunk_height_min = -4
 chunk_height_max = 8

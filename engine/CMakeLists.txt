@@ -77,6 +77,8 @@ target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_D
 set(ENGINE_PHYSICS_SOURCES
     physics/PhysicsSystem.cpp
     physics/VoxelCapsuleResolver.cpp
+    physics/ObjectLayerMatrix.cpp
+    physics/CollisionRemeshQueue.cpp
 )
 
 add_library(engine_physics STATIC ${ENGINE_PHYSICS_SOURCES})

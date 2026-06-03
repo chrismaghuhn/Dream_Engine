@@ -22,6 +22,8 @@ add_executable(engine_tests
     audio/test_occlusion_grid.cpp
     physics/test_capsule_resolver.cpp
     physics/test_physics_system_jolt.cpp
+    physics/test_object_layer_matrix.cpp
+    physics/test_collision_remesh_queue.cpp
     persist/test_minimal_save.cpp
     persist/test_region_save.cpp
     persist/test_player_dat_inventory.cpp

@@ -29,3 +29,14 @@ TEST_CASE("finalize_gpu sets gpu_mesh_vram") {
 
     REQUIRE(cfg.memory().gpu_mesh_vram > 0);
 }
+
+TEST_CASE("finalize_cpu derives destruction limits from RAM") {
+    engine::EngineConfig cfg;
+    engine::CpuHardware cpu{};
+    cpu.ram_bytes = 8ULL * 1024 * 1024 * 1024;
+    cpu.physical_cores = 4;
+    cfg.finalize_cpu(cpu);
+
+    REQUIRE(cfg.destruction().max_active_debris >= 64);
+    REQUIRE(cfg.destruction().max_fracture_depth >= 2);
+}
