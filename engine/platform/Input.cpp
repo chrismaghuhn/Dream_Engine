@@ -50,10 +50,17 @@ void Input::update_keys(GLFWwindow* window) {
     const bool place_now = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS ||
                            glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
 
+    const bool save_now = glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS;
+    const bool load_now = glfwGetKey(window, GLFW_KEY_F9) == GLFW_PRESS;
+
     break_pressed_ = break_now && !break_down_;
     place_pressed_ = place_now && !place_down_;
+    save_pressed_ = save_now && !save_down_;
+    load_pressed_ = load_now && !load_down_;
     break_down_ = break_now;
     place_down_ = place_now;
+    save_down_ = save_now;
+    load_down_ = load_now;
 }
 
 void Input::update_mouse(GLFWwindow* window) {

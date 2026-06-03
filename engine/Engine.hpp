@@ -13,8 +13,12 @@
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/OriginRebase.hpp"
 #include "engine/gameplay/CreativeBlockPicker.hpp"
+#include "engine/persist/SaveService.hpp"
+#include "engine/world/WorldPosition.hpp"
 
+#include <filesystem>
 #include <flecs.h>
+#include <string>
 
 namespace engine {
 
@@ -40,6 +44,11 @@ public:
 
 private:
     void render_build(std::uint32_t snapshot_slot);
+    [[nodiscard]] SaveWorldRequest make_save_request() const;
+    [[nodiscard]] WorldPosition current_player_position() const;
+    void apply_player_position(const WorldPosition& position);
+    bool try_load_world_save();
+    bool save_world_to_disk();
 
     EngineConfig config_{};
     JobSystem jobs_{};
@@ -57,6 +66,8 @@ private:
     flecs::world world_{};
     flecs::entity player_fly_{};
     CreativeBlockPicker creative_picker_{};
+    std::filesystem::path saves_root_;
+    std::string world_name_ = "default";
     std::uint64_t frame_index_ = 0;
     bool started_ = false;
 };

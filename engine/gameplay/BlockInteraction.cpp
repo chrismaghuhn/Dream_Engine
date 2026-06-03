@@ -1,6 +1,7 @@
 #include "engine/gameplay/BlockInteraction.hpp"
 
 #include "engine/gameplay/BlockRegistry.hpp"
+#include "engine/world/Chunk.hpp"
 #include "engine/world/WorldEvents.hpp"
 
 #include <algorithm>
@@ -168,6 +169,10 @@ BlockMutationResult apply_block_mutation(
 
     if (!store.write_block(mutation.pos, mutation.new_state)) {
         return result;
+    }
+
+    if (Chunk* chunk = store.try_get(mutation.pos.chunk)) {
+        chunk->flags |= CHUNK_MODIFIED_BY_PLAYER;
     }
 
     mark_chunk_dirty(world, store, mutation.pos.chunk);

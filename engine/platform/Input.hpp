@@ -21,6 +21,8 @@ public:
 
     [[nodiscard]] bool break_pressed() const { return break_pressed_; }
     [[nodiscard]] bool place_pressed() const { return place_pressed_; }
+    [[nodiscard]] bool save_pressed() const { return save_pressed_; }
+    [[nodiscard]] bool load_pressed() const { return load_pressed_; }
 
     void set_cursor_captured(GLFWwindow* window, bool captured);
 
@@ -46,8 +48,12 @@ private:
 
     bool break_down_ = false;
     bool place_down_ = false;
+    bool save_down_ = false;
+    bool load_down_ = false;
     bool break_pressed_ = false;
     bool place_pressed_ = false;
+    bool save_pressed_ = false;
+    bool load_pressed_ = false;
 };
 
 } // namespace engine

@@ -9,10 +9,13 @@
 #include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/StreamingSystem.hpp"
 #include "engine/world/WorldModule.hpp"
+#include "engine/persist/SaveService.hpp"
+#include "engine/gameplay/CameraSystem.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <filesystem>
 #include <string>
 
 #ifndef ENGINE_SOURCE_DIR
@@ -87,7 +90,9 @@ bool Engine::startup() {
     chunk_gpu_services_.frame_index = [this]() { return frame_index_; };
     set_chunk_gpu_services(&chunk_gpu_services_);
 
+    saves_root_ = std::filesystem::path(ENGINE_SOURCE_DIR) / "saves";
     chunk_store_.init(static_cast<uint32_t>(config_.streaming().max_loaded_chunks));
+    (void)try_load_world_save();
     if (config_.thin_terrain_preview()) {
         thin_terrain_.init(world_, chunk_store_, config_.world());
         thin_terrain_.build_cpu_meshes();
@@ -113,6 +118,7 @@ void Engine::shutdown() {
         return;
     }
 
+    (void)save_world_to_disk();
     set_chunk_gpu_services(nullptr);
     ui_host_.shutdown();
     renderer_.shutdown();
@@ -128,6 +134,59 @@ void Engine::shutdown() {
     spdlog::shutdown();
 
     started_ = false;
+}
+
+SaveWorldRequest Engine::make_save_request() const {
+    SaveWorldRequest request{};
+    request.saves_root = saves_root_;
+    request.world_name = world_name_;
+    request.world_config = config_.world();
+    request.player_position = current_player_position();
+    return request;
+}
+
+WorldPosition Engine::current_player_position() const {
+    if (const auto* camera_component = player_fly_.get<CameraComponent>()) {
+        const glm::ivec3 world_blocks =
+            glm::ivec3(glm::floor(camera_component->camera.position));
+        return WorldPosition::from_world_blocks(world_blocks.x, world_blocks.y, world_blocks.z);
+    }
+    return {};
+}
+
+void Engine::apply_player_position(const WorldPosition& position) {
+    if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+        camera_component->camera.position =
+            glm::vec3(position.chunk) * 32.f + position.local;
+    }
+}
+
+bool Engine::try_load_world_save() {
+    const SaveWorldRequest request = make_save_request();
+    if (!SaveService::world_save_exists(request)) {
+        return false;
+    }
+
+    WorldPosition loaded_position{};
+    if (!SaveService::load_world(request, loaded_position, chunk_store_)) {
+        SPDLOG_WARN("Failed to load world save from {}", SaveService::world_dir(request).string());
+        return false;
+    }
+
+    apply_player_position(loaded_position);
+    SPDLOG_INFO("Loaded world save from {}", SaveService::world_dir(request).string());
+    return true;
+}
+
+bool Engine::save_world_to_disk() {
+    const SaveWorldRequest request = make_save_request();
+    if (!SaveService::save_world(request, chunk_store_)) {
+        SPDLOG_WARN("Failed to save world to {}", SaveService::world_dir(request).string());
+        return false;
+    }
+
+    SPDLOG_INFO("Saved world to {}", SaveService::world_dir(request).string());
+    return true;
 }
 
 void Engine::render_build(std::uint32_t snapshot_slot) {
@@ -177,6 +236,13 @@ void Engine::run() {
 
         sim_clock_.advance(frame_delta);
         sim_tick_ += sim_clock_.step([]() {});
+
+        if (input_.save_pressed()) {
+            (void)save_world_to_disk();
+        }
+        if (input_.load_pressed()) {
+            (void)try_load_world_save();
+        }
 
         if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
             CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);

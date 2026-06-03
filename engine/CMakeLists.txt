@@ -16,6 +16,9 @@ set(ENGINE_CORE_SOURCES
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     gameplay/BlockInteraction.cpp
+    persist/AtomicFile.cpp
+    persist/PlayerDat.cpp
+    persist/MinimalSaveBackend.cpp
     Engine.cpp
 )
 
@@ -65,6 +68,7 @@ target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_D
 
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})
 target_include_directories(engine_core PUBLIC ${CMAKE_SOURCE_DIR})
+target_compile_definitions(engine_core PUBLIC ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(engine_core PUBLIC
     spdlog::spdlog
     glm::glm
