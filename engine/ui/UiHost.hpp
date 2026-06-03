@@ -17,6 +17,7 @@ struct UiOverlayStats {
     float fps = 0.f;
     std::uint64_t sim_tick = 0;
     std::uint32_t loaded_chunks = 0;
+    std::uint32_t draw_sections = 0;
 };
 
 struct UiInventoryState {

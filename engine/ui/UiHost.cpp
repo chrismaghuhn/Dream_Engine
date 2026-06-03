@@ -284,6 +284,7 @@ void UiHost::new_frame(const UiOverlayStats& stats, UiInventoryState& inventory_
         ImGui::Text("FPS: %.1f", stats.fps);
         ImGui::Text("Sim tick: %llu", static_cast<unsigned long long>(stats.sim_tick));
         ImGui::Text("Loaded chunks: %u", stats.loaded_chunks);
+        ImGui::Text("Draw sections: %u", stats.draw_sections);
     }
     ImGui::End();
 

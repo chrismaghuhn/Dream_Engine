@@ -71,6 +71,10 @@ private:
     void ensure_gpu_slots(GpuMeshPool& mesh_pool, std::uint64_t frame_index);
     void queue_uploads(MeshUploadQueue& upload_queue);
     void sync_entity_mesh_slots(ChunkCoord coord, const ChunkMeshState& state);
+    void process_mesh_backlog();
+    [[nodiscard]] int count_pending_mesh_jobs() const;
+
+    static constexpr int kMaxPendingMeshJobs = 256;
 
     flecs::world* world_ = nullptr;
     ChunkStore* store_ = nullptr;

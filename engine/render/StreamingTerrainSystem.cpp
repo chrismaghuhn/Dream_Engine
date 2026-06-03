@@ -68,8 +68,25 @@ void StreamingTerrainSystem::schedule_chunk_mesh(const ChunkCoord coord) {
     }
 }
 
+int StreamingTerrainSystem::count_pending_mesh_jobs() const {
+    int pending = 0;
+    for (const auto& [coord, chunk_state] : chunk_meshes_) {
+        (void)coord;
+        for (const SectionMeshState& section_state : chunk_state.sections) {
+            if (section_state.mesh_job_pending) {
+                ++pending;
+            }
+        }
+    }
+    return pending;
+}
+
 void StreamingTerrainSystem::schedule_section_mesh(const ChunkCoord coord, const std::uint8_t section_index) {
     if (store_ == nullptr || jobs_ == nullptr) {
+        return;
+    }
+
+    if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
         return;
     }
 
@@ -242,11 +259,39 @@ void StreamingTerrainSystem::sync_entity_mesh_slots(const ChunkCoord coord, cons
     entity.set<ChunkMeshSlots>(slots);
 }
 
+void StreamingTerrainSystem::process_mesh_backlog() {
+    if (store_ == nullptr || jobs_ == nullptr) {
+        return;
+    }
+
+    store_->for_each_loaded([&](const ChunkCoord coord) {
+        if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
+            return;
+        }
+        if (store_->is_pending_unload(coord)) {
+            return;
+        }
+
+        ChunkMeshState& chunk_state = chunk_meshes_[coord];
+        chunk_state.coord = coord;
+        for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
+            if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
+                return;
+            }
+            SectionMeshState& section_state = chunk_state.sections[section_index];
+            if (!section_state.mesh_ready && !section_state.mesh_job_pending) {
+                schedule_section_mesh(coord, section_index);
+            }
+        }
+    });
+}
+
 void StreamingTerrainSystem::on_frame(const std::uint64_t frame_index,
                                       GpuMeshPool& mesh_pool,
                                       MeshUploadQueue& upload_queue,
                                       GpuDeferredFreeQueue& deferred_free) {
     drain_mesh_completions();
+    process_mesh_backlog();
     for (const std::uint32_t slot_id : pending_slot_frees_) {
         deferred_free.enqueue_free(slot_id, frame_index);
     }
@@ -292,7 +337,7 @@ void StreamingTerrainSystem::build_snapshot(
                 continue;
             }
 
-            if (section_state.opaque_upload_queued && section_state.opaque_gpu_slot_id != 0 &&
+            if (section_state.mesh_ready && section_state.opaque_gpu_slot_id != 0 &&
                 section_state.opaque_index_count > 0) {
                 culled_opaque_sections_.push_back(DrawSection{
                     .coord = coord,
@@ -307,7 +352,7 @@ void StreamingTerrainSystem::build_snapshot(
                 });
             }
 
-            if (section_state.water_upload_queued && section_state.water_gpu_slot_id != 0 &&
+            if (section_state.mesh_ready && section_state.water_gpu_slot_id != 0 &&
                 section_state.water_index_count > 0) {
                 culled_water_sections_.push_back(DrawSection{
                     .coord = coord,

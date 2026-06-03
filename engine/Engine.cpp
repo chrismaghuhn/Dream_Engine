@@ -10,6 +10,7 @@
 #include "engine/physics/DebrisSystem.hpp"
 #include "engine/physics/VoxelCapsuleResolver.hpp"
 #include "engine/render/Renderer.hpp"
+#include "engine/procgen/TerrainGraph.hpp"
 #include "engine/world/WorldEvents.hpp"
 #include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/StreamingSystem.hpp"
@@ -22,6 +23,7 @@
 #include <GLFW/glfw3.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <string>
 
@@ -100,7 +102,15 @@ bool Engine::startup() {
     saves_root_ = std::filesystem::path(ENGINE_SOURCE_DIR) / "saves";
     chunk_store_.init(static_cast<uint32_t>(config_.streaming().max_loaded_chunks));
     inventory_.seed_default_hotbar();
-    (void)try_load_world_save();
+    const bool loaded_save = try_load_world_save();
+    if (!loaded_save) {
+        TerrainGraph terrain(config_.world().world_seed, config_.world().sea_level);
+        const float spawn_y = static_cast<float>(terrain.surface_height_at(0, 0)) + 2.f;
+        if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+            camera_component->camera.position = glm::vec3{0.f, spawn_y, 0.f};
+            SPDLOG_INFO("Player spawn at surface y={:.1f}", spawn_y);
+        }
+    }
 
     if (!physics_.init()) {
         SPDLOG_ERROR("Failed to initialize PhysicsSystem");
@@ -197,8 +207,15 @@ WorldPosition Engine::current_player_position() const {
 
 void Engine::apply_player_position(const WorldPosition& position) {
     if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
-        camera_component->camera.position =
-            glm::vec3(position.chunk) * 32.f + position.local;
+        glm::vec3 world_pos = glm::vec3(position.chunk) * 32.f + position.local;
+        TerrainGraph terrain(config_.world().world_seed, config_.world().sea_level);
+        const int wx = static_cast<int>(std::floor(world_pos.x));
+        const int wz = static_cast<int>(std::floor(world_pos.z));
+        const float surface_y = static_cast<float>(terrain.surface_height_at(wx, wz)) + 2.f;
+        if (world_pos.y < surface_y) {
+            world_pos.y = surface_y;
+        }
+        camera_component->camera.position = world_pos;
     }
 }
 
@@ -300,8 +317,6 @@ void Engine::render_build(std::uint32_t snapshot_slot) {
     if (!camera_component) {
         return;
     }
-
-    jobs_.wait_meshing();
 
     const float aspect_ratio = renderer_.aspect_ratio();
     WorldRenderSnapshot& snapshot = renderer_.snapshot_ring().snapshot(snapshot_slot);
@@ -434,6 +449,10 @@ void Engine::run() {
         const std::uint32_t snapshot_slot = renderer_.snapshot_ring().pick_write_slot();
         render_build(snapshot_slot);
 
+        const WorldRenderSnapshot& snapshot = renderer_.snapshot_ring().snapshot(snapshot_slot);
+        const std::uint32_t draw_sections =
+            static_cast<std::uint32_t>(snapshot.opaque_sections.size() + snapshot.water_sections.size());
+
         UiInventoryState inventory_ui{
             .inventory = &inventory_,
             .inventory_open = inventory_open_,
@@ -443,6 +462,7 @@ void Engine::run() {
                 .fps = fps,
                 .sim_tick = sim_tick_,
                 .loaded_chunks = chunk_store_.loaded_count(),
+                .draw_sections = draw_sections,
             },
             inventory_ui);
         inventory_open_ = inventory_ui.inventory_open;
