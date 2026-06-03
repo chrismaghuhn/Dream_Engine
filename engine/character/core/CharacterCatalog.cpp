@@ -52,11 +52,16 @@ CharacterAsset CharacterCatalog::load_player_set() {
 
     // Animation clip list: (file suffix, logical clip name)
     const std::pair<std::string, std::string> clips[] = {
-        {"Animation_Walking_withSkin.glb",     "Walk"},
-        {"Animation_Running_withSkin.glb",     "Run"},
-        {"Animation_High_Kick_withSkin.glb",   "High_Kick"},
-        {"Animation_Elbow_Strike_withSkin.glb","Elbow_Strike"},
-        {"Animation_Counterstrike_withSkin.glb","Counterstrike"},
+        {"Animation_Walking_withSkin.glb",          "Walk"},
+        {"Animation_Running_withSkin.glb",          "Run"},
+        {"Animation_High_Kick_withSkin.glb",        "High_Kick"},
+        {"Animation_Elbow_Strike_withSkin.glb",     "Elbow_Strike"},
+        {"Animation_Counterstrike_withSkin.glb",    "Counterstrike"},
+        {"Animation_Spartan_Kick_withSkin.glb",     "Spartan_Kick"},
+        {"Animation_Dodge_and_Counter_withSkin.glb","Dodge_and_Counter"},
+        {"Animation_Sweeping_Kick_withSkin.glb",    "Sweeping_Kick"},
+        {"Animation_Lunge_Spin_Kick_withSkin.glb",  "Lunge_Spin_Kick"},
+        {"Animation_Shield_Push_Left_withSkin.glb", "Shield_Push_Left"},
     };
 
     for (const auto& [suffix, clip_name] : clips) {
