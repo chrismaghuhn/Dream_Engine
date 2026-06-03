@@ -51,65 +51,22 @@ bool capsule_intersects_box(glm::vec3 capsule_center,
 bool try_hit_in_window(CombatController& combat,
                        const AnimationState& anim,
                        const AttackDef& def,
+                       float clip_duration_seconds,
                        const engine::movement::Transform& attacker,
                        const engine::movement::Transform& target,
                        const engine::movement::Collider& target_collider) {
     if (combat.hit_consumed) {
         return false;
     }
-    if (combat.phase != CombatPhase::Attacking) {
+    if (combat.phase != CombatPhase::Active) {
         return false;
     }
 
-    // Compute normalized clip time using the clip duration from the combat budget.
-    // We use clip_remaining and the original duration (stored in def implicitly via
-    // hit_window which is normalized). We need to derive normalized time from
-    // anim.time_seconds and the original clip duration.
-    // Normalized time is simply anim.time_seconds / clip_duration.
-    // Since we don't have clip_duration here directly, and the hit window
-    // is [hit_start, hit_end] in normalized [0,1] time, we derive it from
-    // anim.time_seconds. The AnimationController caps time to duration on non-looping clips.
-    // For attack clips anim.looping = false; we just check time directly.
-    // The AnimClip duration is needed. We approximate via: if anim.time_seconds
-    // maps to the current frame, and the hit window is normalized, we need duration.
-    // Solution: the caller passes normalized time directly — but try_hit_in_window
-    // uses anim directly. We compute via: time / some_duration.
-    // Simplest correct approach: evaluate time / def total duration if available.
-    // Since AttackDef doesn't store clip_duration, use a convention: the hit window
-    // is checked against the raw anim.time_seconds relative to the clip_remaining
-    // budget that was set to clip_duration at attack start. We store the original
-    // duration in the CombatController's clip_remaining field at attack start.
-    // But clip_remaining is counting DOWN. We don't know the original value.
-    //
-    // Practical v1 solution: store the original clip duration in CombatController
-    // so we can compute normalized time here. For now use a simpler approach:
-    // convert hit_window from normalized to seconds using a known-duration lookup.
-    // Since we have anim.time_seconds and the combat started at time=0, and
-    // clip_remaining started at clip_duration, normalized = anim.time_seconds / original_duration.
-    // We CAN compute it from: anim.time_seconds (0..clip_duration) vs def.hit_window.
-    //
-    // The cleanest approach for v1: AnimationController::normalized_time() expects
-    // an AnimClip* which we don't have. So we accept that we check time directly:
-    // the hit window was DESIGNED for the full clip duration.
-    // Store clip_duration at attack start in CombatController.clip_remaining start value.
-    // For the normalized check: if clip runs [0..D], window is [hit_start*D, hit_end*D].
-    // Since we can't recover D from here, ask the caller to pass it, OR
-    // accept raw time check with the spec's normalized window scaled by actual clip duration.
-    //
-    // For v1, we use a DIFFERENT approach: we check whether anim.time_seconds /
-    // (anim.time_seconds + combat.clip_remaining) — but clip_remaining decrements
-    // with the same dt, so: original_duration = anim.time_seconds + combat.clip_remaining.
-    // Then normalized = anim.time_seconds / original_duration.
+    const float normalized = clip_duration_seconds > 1e-5f
+        ? std::clamp(anim.time_seconds / clip_duration_seconds, 0.f, 1.f)
+        : 1.f;
 
-    const float elapsed = anim.time_seconds;
-    const float remaining = combat.clip_remaining;
-    // If remaining < 0, clip already ended — still allow hits that were in window.
-    const float original_duration = elapsed + (remaining > 0.f ? remaining : 0.f);
-    const float normalized = (original_duration > 1e-5f)
-                                 ? elapsed / original_duration
-                                 : 1.f;
-
-    if (normalized < def.hit_start || normalized > def.hit_end) {
+    if (normalized < def.hit_start_norm || normalized > def.hit_end_norm) {
         return false;
     }
 

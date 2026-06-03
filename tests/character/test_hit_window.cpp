@@ -9,7 +9,7 @@ using namespace engine::character;
 using namespace engine::movement;
 
 static AttackDef make_def() {
-    return AttackDef{"high_kick", "High_Kick", 0.35f, 0.48f, 1.25f, 0.35f, 0.25f};
+    return AttackDef{"high_kick", "High_Kick", 0.35f, 0.48f, 1.25f, 0.35f, 0.25f, 0.68f, 0.58f};
 }
 
 static Transform make_transform(glm::vec3 pos = {0.f, 1.f, 0.f}, float yaw = 0.f) {
@@ -29,10 +29,9 @@ static Collider box_col(glm::vec3 half = {0.4f, 0.9f, 0.4f}) {
 // Build a CombatController that is mid-attack with given elapsed/remaining.
 static CombatController attacking(float elapsed, float remaining, float yaw = 0.f) {
     CombatController cc;
-    cc.phase          = CombatPhase::Attacking;
+    cc.phase          = CombatPhase::Active;
     cc.attack_yaw     = yaw;
     cc.hit_consumed   = false;
-    cc.clip_remaining = remaining;
     return cc;
 }
 
@@ -47,7 +46,7 @@ TEST_CASE("hit fires inside window", "[hit_window]") {
 
     // Target placed at exactly `range` ahead along forward (+Z at yaw=0).
     const bool hit = try_hit_in_window(
-        combat, anim, def,
+        combat, anim, def, 1.f,
         make_transform({0.f, 1.f, 0.f}, 0.f),
         make_transform({0.f, 1.f, 1.25f}),
         box_col());
@@ -68,10 +67,10 @@ TEST_CASE("hit fires at most once per swing", "[hit_window]") {
     auto target   = make_transform({0.f, 1.f, 1.25f});
     auto col      = box_col();
 
-    try_hit_in_window(combat, anim, def, attacker, target, col);
+    try_hit_in_window(combat, anim, def, 1.f, attacker, target, col);
     REQUIRE(combat.hit_consumed);
 
-    REQUIRE_FALSE(try_hit_in_window(combat, anim, def, attacker, target, col));
+    REQUIRE_FALSE(try_hit_in_window(combat, anim, def, 1.f, attacker, target, col));
 }
 
 TEST_CASE("no hit before window", "[hit_window]") {
@@ -84,7 +83,7 @@ TEST_CASE("no hit before window", "[hit_window]") {
     anim.time_seconds = 0.10f;
 
     REQUIRE_FALSE(try_hit_in_window(
-        combat, anim, def,
+        combat, anim, def, 1.f,
         make_transform({0.f, 1.f, 0.f}, 0.f),
         make_transform({0.f, 1.f, 1.25f}),
         box_col()));
@@ -101,7 +100,7 @@ TEST_CASE("no hit after window", "[hit_window]") {
     anim.time_seconds = 0.90f;
 
     REQUIRE_FALSE(try_hit_in_window(
-        combat, anim, def,
+        combat, anim, def, 1.f,
         make_transform({0.f, 1.f, 0.f}, 0.f),
         make_transform({0.f, 1.f, 1.25f}),
         box_col()));
@@ -116,7 +115,7 @@ TEST_CASE("no hit when not Attacking", "[hit_window]") {
     anim.time_seconds = 0.40f;
 
     REQUIRE_FALSE(try_hit_in_window(
-        combat, anim, def,
+        combat, anim, def, 1.f,
         make_transform({0.f, 1.f, 0.f}, 0.f),
         make_transform({0.f, 1.f, 1.25f}),
         box_col()));

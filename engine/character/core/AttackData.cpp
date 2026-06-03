@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace engine::character {
 
@@ -105,7 +106,7 @@ AttackDef parse_attack_block(Lexer& lex, const std::string& id) {
                 lex.source + ": unexpected end of file in attack '" + id + "'");
         }
         if (lex.text[lex.pos] == '}') {
-            lex.read_token(); // consume '}'
+            (void)lex.read_token(); // consume '}'
             break;
         }
 
@@ -117,8 +118,8 @@ AttackDef parse_attack_block(Lexer& lex, const std::string& id) {
             def.clip = lex.read_token();
         } else if (field == "hit_window") {
             check_dup("hit_window");
-            def.hit_start = lex.read_float("hit_window.start");
-            def.hit_end   = lex.read_float("hit_window.end");
+            def.hit_start_norm = lex.read_float("hit_window.start");
+            def.hit_end_norm   = lex.read_float("hit_window.end");
         } else if (field == "range") {
             check_dup("range");
             def.range = lex.read_float("range");
@@ -127,7 +128,13 @@ AttackDef parse_attack_block(Lexer& lex, const std::string& id) {
             def.radius = lex.read_float("radius");
         } else if (field == "recovery") {
             check_dup("recovery");
-            def.recovery = lex.read_float("recovery");
+            def.recovery_seconds = lex.read_float("recovery");
+        } else if (field == "cancel_window") {
+            check_dup("cancel_window");
+            def.cancel_start_norm = lex.read_float("cancel_window");
+        } else if (field == "dodge_cancel_window") {
+            check_dup("dodge_cancel_window");
+            def.dodge_cancel_start_norm = lex.read_float("dodge_cancel_window");
         } else {
             throw std::runtime_error(
                 lex.source + ":" + std::to_string(lex.line) + ":" +
@@ -145,6 +152,20 @@ AttackDef parse_attack_block(Lexer& lex, const std::string& id) {
                 lex.source + ": missing required field '" + req +
                 "' in attack '" + id + "'");
         }
+    }
+
+    if (def.hit_start_norm < 0.f || def.hit_end_norm > 1.f ||
+        def.hit_start_norm > def.hit_end_norm) {
+        throw std::runtime_error(
+            lex.source + ": invalid hit_window in attack '" + id + "'");
+    }
+    if (def.cancel_start_norm < def.hit_end_norm) {
+        throw std::runtime_error(
+            lex.source + ": cancel_window must be >= hit_window end in attack '" + id + "'");
+    }
+    if (def.dodge_cancel_start_norm > def.cancel_start_norm) {
+        throw std::runtime_error(
+            lex.source + ": dodge_cancel_window must be <= cancel_window in attack '" + id + "'");
     }
 
     return def;

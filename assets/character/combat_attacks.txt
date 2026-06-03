@@ -1,6 +1,7 @@
-# combat_attacks.txt — v1 attack table (Movement Foundation Combat Slice)
-# Fields: clip, hit_window [start end], range, radius, recovery
-# hit_window: normalized clip time [0, 1]
+# combat_attacks.txt - v2 attack table (Combat Redesign)
+# Fields: clip, hit_window [start end], range, radius, recovery,
+#         cancel_window, dodge_cancel_window
+# hit_window/cancel windows are normalized clip time [0, 1].
 
 attack high_kick {
     clip High_Kick
@@ -8,6 +9,8 @@ attack high_kick {
     range 1.25
     radius 0.35
     recovery 0.25
+    cancel_window 0.68
+    dodge_cancel_window 0.58
 }
 
 attack elbow_strike {
@@ -16,6 +19,8 @@ attack elbow_strike {
     range 0.85
     radius 0.30
     recovery 0.20
+    cancel_window 0.64
+    dodge_cancel_window 0.56
 }
 
 attack counterstrike {
@@ -24,4 +29,56 @@ attack counterstrike {
     range 1.05
     radius 0.35
     recovery 0.35
+    cancel_window 0.72
+    dodge_cancel_window 0.62
+}
+
+attack spartan_kick {
+    clip Spartan_Kick
+    hit_window 0.34 0.50
+    range 1.35
+    radius 0.38
+    recovery 0.35
+    cancel_window 0.72
+    dodge_cancel_window 0.62
+}
+
+attack dodge_and_counter {
+    clip Dodge_and_Counter
+    hit_window 0.42 0.60
+    range 1.10
+    radius 0.35
+    recovery 0.30
+    cancel_window 0.76
+    dodge_cancel_window 0.66
+}
+
+attack sweeping_kick {
+    clip Sweeping_Kick
+    hit_window 0.30 0.52
+    range 1.15
+    radius 0.42
+    recovery 0.32
+    cancel_window 0.70
+    dodge_cancel_window 0.60
+}
+
+attack lunge_spin_kick {
+    clip Lunge_Spin_Kick
+    hit_window 0.36 0.62
+    range 1.50
+    radius 0.40
+    recovery 0.40
+    cancel_window 0.78
+    dodge_cancel_window 0.68
+}
+
+attack shield_push {
+    clip Shield_Push_Left
+    hit_window 0.28 0.46
+    range 0.95
+    radius 0.36
+    recovery 0.28
+    cancel_window 0.66
+    dodge_cancel_window 0.58
 }

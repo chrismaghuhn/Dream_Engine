@@ -20,6 +20,7 @@ namespace engine::character {
 [[nodiscard]] bool try_hit_in_window(CombatController& combat,
                                      const AnimationState& anim,
                                      const AttackDef& def,
+                                     float clip_duration_seconds,
                                      const engine::movement::Transform& attacker,
                                      const engine::movement::Transform& target,
                                      const engine::movement::Collider& target_collider);
