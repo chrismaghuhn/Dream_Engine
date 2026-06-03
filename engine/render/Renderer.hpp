@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/core/EngineConfig.hpp"
+#include "engine/render/SnapshotRing.hpp"
 #include "engine/render/VulkanContext.hpp"
 
 #include <cstdint>
@@ -27,6 +28,7 @@ public:
 
     [[nodiscard]] bool initialized() const { return initialized_; }
     [[nodiscard]] const GpuCaps& gpu_caps() const { return gpu_caps_; }
+    [[nodiscard]] SnapshotRing& snapshot_ring() { return snapshot_ring_; }
 
     void render_frame();
 
@@ -40,10 +42,11 @@ private:
     void recreate_swapchain();
 
     bool begin_frame(std::uint32_t& image_index);
-    void end_frame(std::uint32_t image_index);
+    void end_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
     void record_clear_pass(std::uint32_t image_index);
 
     VulkanContext context_{};
+    SnapshotRing snapshot_ring_{kFramesInFlight};
 
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> framebuffers_;
@@ -52,7 +55,6 @@ private:
 
     std::vector<VkSemaphore> image_available_semaphores_;
     std::vector<VkSemaphore> render_finished_semaphores_;
-    std::vector<VkFence> frame_fences_;
 
     GpuCaps gpu_caps_{};
     std::uint32_t frame_index_ = 0;

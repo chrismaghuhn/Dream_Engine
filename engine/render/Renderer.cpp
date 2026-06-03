@@ -35,6 +35,8 @@ bool Renderer::init(Platform& platform) {
         return false;
     }
 
+    snapshot_ring_.init(context_.device());
+
     if (!create_render_pass()) {
         shutdown();
         return false;
@@ -75,6 +77,7 @@ void Renderer::shutdown() {
 
     destroy_frame_resources();
     destroy_swapchain_resources();
+    snapshot_ring_.shutdown();
     context_.shutdown();
 
     gpu_caps_ = {};
@@ -91,9 +94,7 @@ void Renderer::render_frame() {
         return;
     }
 
-    const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
-
-    vkWaitForFences(context_.device(), 1, &frame_fences_[frame_slot], VK_TRUE, UINT64_MAX);
+    const std::uint32_t snapshot_slot = snapshot_ring_.pick_write_slot();
 
     std::uint32_t image_index = 0;
     if (!begin_frame(image_index)) {
@@ -101,13 +102,12 @@ void Renderer::render_frame() {
     }
 
     record_clear_pass(image_index);
-    end_frame(image_index);
+    end_frame(image_index, snapshot_slot);
     ++frame_index_;
 }
 
 bool Renderer::begin_frame(std::uint32_t& image_index) {
     const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
-    VK_CHECK(vkResetFences(context_.device(), 1, &frame_fences_[frame_slot]));
 
     const VkResult acquire_result = vkAcquireNextImageKHR(context_.device(),
                                                             context_.swapchain(),
@@ -154,7 +154,7 @@ void Renderer::record_clear_pass(std::uint32_t image_index) {
     VK_CHECK(vkEndCommandBuffer(command_buffer));
 }
 
-void Renderer::end_frame(std::uint32_t image_index) {
+void Renderer::end_frame(std::uint32_t image_index, std::uint32_t snapshot_slot) {
     const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
     VkCommandBuffer command_buffer = command_buffers_[frame_slot];
 
@@ -173,7 +173,8 @@ void Renderer::end_frame(std::uint32_t image_index) {
         .pSignalSemaphores = signal_semaphores.data(),
     };
 
-    VK_CHECK(vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, frame_fences_[frame_slot]));
+    VK_CHECK(vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, snapshot_ring_.fence(snapshot_slot)));
+    snapshot_ring_.mark_submitted(snapshot_slot);
 
     VkSwapchainKHR swapchain = context_.swapchain();
     const VkPresentInfoKHR present_info{
@@ -314,18 +315,12 @@ bool Renderer::create_command_pool_and_buffers() {
 bool Renderer::create_sync_objects() {
     image_available_semaphores_.resize(kFramesInFlight);
     render_finished_semaphores_.resize(kFramesInFlight);
-    frame_fences_.resize(kFramesInFlight);
 
     const VkSemaphoreCreateInfo semaphore_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    const VkFenceCreateInfo fence_info{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-    };
 
     for (std::uint32_t i = 0; i < kFramesInFlight; ++i) {
         VK_CHECK(vkCreateSemaphore(context_.device(), &semaphore_info, nullptr, &image_available_semaphores_[i]));
         VK_CHECK(vkCreateSemaphore(context_.device(), &semaphore_info, nullptr, &render_finished_semaphores_[i]));
-        VK_CHECK(vkCreateFence(context_.device(), &fence_info, nullptr, &frame_fences_[i]));
     }
 
     return true;
@@ -335,11 +330,6 @@ void Renderer::destroy_frame_resources() {
     if (context_.device() == VK_NULL_HANDLE) {
         return;
     }
-
-    for (VkFence fence : frame_fences_) {
-        vkDestroyFence(context_.device(), fence, nullptr);
-    }
-    frame_fences_.clear();
 
     for (VkSemaphore semaphore : render_finished_semaphores_) {
         vkDestroySemaphore(context_.device(), semaphore, nullptr);

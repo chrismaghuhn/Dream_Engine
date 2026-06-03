@@ -17,6 +17,7 @@ target_link_libraries(engine_platform PUBLIC glfw)
 set(ENGINE_RENDER_SOURCES
     render/VulkanContext.cpp
     render/VulkanDebug.cpp
+    render/SnapshotRing.cpp
     render/Renderer.cpp
 )
 
