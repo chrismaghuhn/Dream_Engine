@@ -143,6 +143,10 @@ void EngineConfig::load_toml(const std::string& path) {
                 read_int_or_default(*streaming, "max_loaded_chunks", 0);
         }
     }
+
+    if (const auto* render = table["render"].as_table()) {
+        thin_terrain_preview_ = read_bool_or_default(*render, "thin_terrain_preview", false);
+    }
 }
 
 void EngineConfig::finalize_cpu(const CpuHardware& cpu) {

@@ -47,6 +47,7 @@ public:
     void release_immediate(std::uint32_t slot_id);
 
     [[nodiscard]] const GpuMeshSlot* slot(std::uint32_t slot_id) const;
+    [[nodiscard]] bool is_live(std::uint32_t slot_id) const;
     [[nodiscard]] std::size_t bytes_used() const { return bytes_used_; }
     [[nodiscard]] std::size_t bytes_budget() const { return bytes_budget_; }
 

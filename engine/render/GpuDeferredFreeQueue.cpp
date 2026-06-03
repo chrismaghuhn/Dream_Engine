@@ -27,6 +27,16 @@ void GpuDeferredFreeQueue::set_free_callback(FreeCallback on_free) {
 }
 
 void GpuDeferredFreeQueue::enqueue_free(std::uint32_t slot_id, std::uint64_t last_used_frame) {
+    if (slot_id == 0) {
+        return;
+    }
+
+    for (const PendingGpuFree& entry : pending_) {
+        if (entry.slot_id == slot_id) {
+            return;
+        }
+    }
+
     pending_.push_back(PendingGpuFree{slot_id, last_used_frame});
 }
 

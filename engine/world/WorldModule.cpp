@@ -20,6 +20,7 @@ WorldModule::WorldModule(flecs::world& ecs) {
     ecs.component<ChunkCoord>();
     ecs.component<ChunkSlotRef>();
     ecs.component<ChunkDirty>();
+    ecs.component<ChunkMeshSlots>();
     ecs.component<WorldRoot>();
     ecs.entity("WorldRoot").add<WorldRoot>();
 

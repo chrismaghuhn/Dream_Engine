@@ -86,6 +86,12 @@ void JobSystem::run_meshing(std::function<void()> fn) {
     meshing_->AddTaskSetToPipe(const_cast<enki::ITaskSet*>(raw));
 }
 
+void JobSystem::wait_meshing() {
+    if (meshing_) {
+        meshing_->WaitforAll();
+    }
+}
+
 void JobSystem::wait_all() {
     if (worker_) {
         worker_->WaitforAll();
@@ -93,9 +99,7 @@ void JobSystem::wait_all() {
     if (io_) {
         io_->WaitforAll();
     }
-    if (meshing_) {
-        meshing_->WaitforAll();
-    }
+    wait_meshing();
     pending_.clear();
 }
 

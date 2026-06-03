@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <array>
 
 namespace engine {
 
@@ -52,6 +53,14 @@ struct ChunkSlotRef {
 
 // Component tag — OnAdd observer enqueues remesh / collision / light (§6).
 struct ChunkDirty {};
+
+// GPU mesh slot ids per section on a chunk entity (§7 deferred free on unload).
+struct ChunkMeshSlots {
+    std::array<uint32_t, 8> section_slot_ids{};
+};
+
+// Alias for per-section GPU slot reference used in unload tests and observers.
+using MeshSectionHandle = ChunkMeshSlots;
 
 // Singleton entity tag for world-scoped events (origin rebase, etc.).
 struct WorldRoot {};

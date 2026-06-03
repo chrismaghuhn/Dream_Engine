@@ -27,6 +27,7 @@ public:
     void run_worker(std::function<void()> fn);
     void run_io(std::function<void()> fn);
     void run_meshing(std::function<void()> fn);
+    void wait_meshing();
     void wait_all();
 
 private:

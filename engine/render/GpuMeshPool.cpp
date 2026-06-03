@@ -242,4 +242,9 @@ const GpuMeshSlot* GpuMeshPool::slot(const std::uint32_t slot_id) const {
     return find_slot(slot_id);
 }
 
+bool GpuMeshPool::is_live(const std::uint32_t slot_id) const {
+    const GpuMeshSlot* slot = find_slot(slot_id);
+    return slot != nullptr && slot->live;
+}
+
 } // namespace engine
