@@ -16,6 +16,7 @@ add_executable(engine_tests
     world/test_greedy_mesher.cpp
     world/test_chunk_unload_gpu.cpp
     procgen/test_heightmap_worldgen.cpp
+    gameplay/test_block_events.cpp
     render/test_snapshot_ring.cpp
     render/test_deferred_free_queue.cpp
     render/test_host_memory_alignment.cpp

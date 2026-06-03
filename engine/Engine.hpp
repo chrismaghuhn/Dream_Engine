@@ -12,6 +12,7 @@
 #include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/OriginRebase.hpp"
+#include "engine/gameplay/CreativeBlockPicker.hpp"
 
 #include <flecs.h>
 
@@ -55,6 +56,7 @@ private:
     ChunkGpuServices chunk_gpu_services_{};
     flecs::world world_{};
     flecs::entity player_fly_{};
+    CreativeBlockPicker creative_picker_{};
     std::uint64_t frame_index_ = 0;
     bool started_ = false;
 };

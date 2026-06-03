@@ -131,6 +131,7 @@ void EngineConfig::load_toml(const std::string& path) {
             world_.world_seed = static_cast<uint64_t>(*seed);
         }
         world_.rebase_radius = read_float_or_default(*world, "rebase_radius", world_.rebase_radius);
+        world_.player_reach = read_float_or_default(*world, "player_reach", world_.player_reach);
     }
 
     if (const auto* engine = table["engine"].as_table()) {

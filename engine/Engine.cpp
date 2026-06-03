@@ -3,6 +3,7 @@
 #include "engine/core/CrashHandlerWin32.hpp"
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/Log.hpp"
+#include "engine/gameplay/BlockInteraction.hpp"
 #include "engine/gameplay/CameraSystem.hpp"
 #include "engine/render/Renderer.hpp"
 #include "engine/world/ChunkLifecycle.hpp"
@@ -181,6 +182,16 @@ void Engine::run() {
             CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
             origin_rebase_.maybe_rebase(
                 world_, camera_component->camera.position, config_.world());
+
+            handle_block_input(
+                world_,
+                chunk_store_,
+                camera_component->camera,
+                input_,
+                config_.world(),
+                creative_picker_,
+                sim_tick_,
+                player_fly_.id());
 
             const glm::ivec3 world_blocks = glm::ivec3(glm::floor(camera_component->camera.position));
             const WorldPosition player_pos =

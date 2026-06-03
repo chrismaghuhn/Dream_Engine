@@ -15,6 +15,7 @@ set(ENGINE_CORE_SOURCES
     render/StreamingTerrainSystem.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
+    gameplay/BlockInteraction.cpp
     Engine.cpp
 )
 

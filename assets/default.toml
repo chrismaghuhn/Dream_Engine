@@ -14,3 +14,4 @@ finite_bounds = false
 sea_level = 64
 world_seed = 42
 rebase_radius = 512.0
+player_reach = 5.0

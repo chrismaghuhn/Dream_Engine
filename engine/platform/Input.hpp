@@ -19,6 +19,9 @@ public:
     [[nodiscard]] bool move_up() const { return move_up_; }
     [[nodiscard]] bool move_down() const { return move_down_; }
 
+    [[nodiscard]] bool break_pressed() const { return break_pressed_; }
+    [[nodiscard]] bool place_pressed() const { return place_pressed_; }
+
     void set_cursor_captured(GLFWwindow* window, bool captured);
 
 private:
@@ -40,6 +43,11 @@ private:
     bool move_right_ = false;
     bool move_up_ = false;
     bool move_down_ = false;
+
+    bool break_down_ = false;
+    bool place_down_ = false;
+    bool break_pressed_ = false;
+    bool place_pressed_ = false;
 };
 
 } // namespace engine

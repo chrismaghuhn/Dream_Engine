@@ -44,6 +44,16 @@ void Input::update_keys(GLFWwindow* window) {
     move_up_ = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
     move_down_ = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
                  glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+
+    const bool break_now = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS ||
+                           glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
+    const bool place_now = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS ||
+                           glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
+
+    break_pressed_ = break_now && !break_down_;
+    place_pressed_ = place_now && !place_down_;
+    break_down_ = break_now;
+    place_down_ = place_now;
 }
 
 void Input::update_mouse(GLFWwindow* window) {

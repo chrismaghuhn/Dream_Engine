@@ -10,4 +10,5 @@ TEST_CASE("WorldConfig defaults") {
     REQUIRE(w.sea_level == 64);
     REQUIRE(w.world_seed == 42);
     REQUIRE(w.rebase_radius == 512.f);
+    REQUIRE(w.player_reach == 5.f);
 }

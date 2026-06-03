@@ -26,13 +26,15 @@ WorldModule::WorldModule(flecs::world& ecs) {
 
     register_chunk_lifecycle(ecs);
 
-    ecs.observer<EvtBlockBroken>()
+    ecs.observer()
         .event<EvtBlockBroken>()
-        .each([](flecs::iter&, size_t, EvtBlockBroken&) {});
+        .with<ChunkCoord>()
+        .run([](flecs::iter&) {});
 
-    ecs.observer<EvtBlockPlaced>()
+    ecs.observer()
         .event<EvtBlockPlaced>()
-        .each([](flecs::iter&, size_t, EvtBlockPlaced&) {});
+        .with<ChunkCoord>()
+        .run([](flecs::iter&) {});
 }
 
 } // namespace engine
