@@ -21,6 +21,8 @@ struct ChunkGpuServices {
 void set_chunk_gpu_services(ChunkGpuServices* services);
 void register_chunk_lifecycle(flecs::world& world);
 
+void refresh_chunk_section_borders(ChunkStore& store, ChunkCoord coord);
+
 [[nodiscard]] flecs::entity load_chunk(
     flecs::world& world, ChunkStore& store, ChunkCoord coord, const WorldConfig& world_config);
 void unload_chunk(flecs::world& world, ChunkStore& store, ChunkCoord coord);

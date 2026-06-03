@@ -24,11 +24,17 @@ public:
     void init(flecs::world& world, ChunkStore& store, JobSystem& jobs, const WorldConfig& world_config);
     void register_observers(flecs::world& world);
 
-    void on_frame(std::uint64_t frame_index,
+    void on_frame(const glm::vec3& focus_world,
+                  std::uint64_t frame_index,
                   GpuMeshPool& mesh_pool,
                   MeshUploadQueue& upload_queue,
                   GpuDeferredFreeQueue& deferred_free);
     void build_snapshot(WorldRenderSnapshot& snapshot, const glm::vec3& render_origin, ChunkStore& store);
+
+    /// Refresh borders + schedule meshes for chunks already in the store (e.g. after save load).
+    void bootstrap_existing_chunks(ChunkStore& store);
+
+    [[nodiscard]] std::size_t count_mesh_ready_sections() const;
 
 private:
     struct SectionMeshState {
@@ -75,7 +81,9 @@ private:
     [[nodiscard]] int count_pending_mesh_jobs() const;
 
     static constexpr int kMaxPendingMeshJobs = 256;
+    static constexpr int kMaxGpuAllocationsPerFrame = 64;
 
+    glm::vec3 focus_world_{0.f};
     flecs::world* world_ = nullptr;
     ChunkStore* store_ = nullptr;
     JobSystem* jobs_ = nullptr;

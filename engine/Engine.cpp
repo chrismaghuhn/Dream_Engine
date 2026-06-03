@@ -142,6 +142,7 @@ bool Engine::startup() {
     } else {
         streaming_terrain_.init(world_, chunk_store_, jobs_, config_.world());
         streaming_terrain_.register_observers(world_);
+        streaming_terrain_.bootstrap_existing_chunks(chunk_store_);
         SPDLOG_INFO("Terrain render mode: streaming multi-chunk");
     }
     SPDLOG_INFO(
@@ -333,7 +334,11 @@ void Engine::render_build(std::uint32_t snapshot_slot) {
     }
 
     streaming_terrain_.on_frame(
-        frame_index_, renderer_.mesh_pool(), renderer_.mesh_upload_queue(), renderer_.deferred_free_queue());
+        camera_component->camera.position,
+        frame_index_,
+        renderer_.mesh_pool(),
+        renderer_.mesh_upload_queue(),
+        renderer_.deferred_free_queue());
     streaming_terrain_.build_snapshot(snapshot, origin_rebase_.render_origin(), chunk_store_);
 }
 

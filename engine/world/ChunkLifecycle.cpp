@@ -2,6 +2,7 @@
 
 #include "engine/procgen/TerrainGraph.hpp"
 #include "engine/render/GpuDeferredFreeQueue.hpp"
+#include "engine/world/BlockLight.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -34,6 +35,16 @@ void enqueue_chunk_mesh_slots(flecs::entity entity) {
 
 void set_chunk_gpu_services(ChunkGpuServices* services) {
     g_gpu_services = services;
+}
+
+void refresh_chunk_section_borders(ChunkStore& store, ChunkCoord coord) {
+    for (int sx = 0; sx < 2; ++sx) {
+        for (int sy = 0; sy < 2; ++sy) {
+            for (int sz = 0; sz < 2; ++sz) {
+                refresh_section_border_cache(store, coord, glm::ivec3{sx, sy, sz});
+            }
+        }
+    }
 }
 
 void register_chunk_lifecycle(flecs::world& world) {
@@ -87,6 +98,7 @@ flecs::entity load_chunk(
 
     TerrainGraph terrain(world_config.world_seed, world_config.sea_level);
     terrain.fill_chunk(*chunk);
+    refresh_chunk_section_borders(store, coord);
 
     const ChunkSlotRef slot_ref = store.slot_ref_for(coord);
     flecs::entity entity = world.entity()
