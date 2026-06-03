@@ -5,7 +5,10 @@
 #include "engine/core/Log.hpp"
 #include "engine/gameplay/BlockInteraction.hpp"
 #include "engine/gameplay/CameraSystem.hpp"
+#include "engine/gameplay/PlayerMotor.hpp"
+#include "engine/physics/VoxelCapsuleResolver.hpp"
 #include "engine/render/Renderer.hpp"
+#include "engine/world/WorldEvents.hpp"
 #include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/StreamingSystem.hpp"
 #include "engine/world/WorldModule.hpp"
@@ -13,6 +16,8 @@
 #include "engine/gameplay/CameraSystem.hpp"
 
 #include <spdlog/spdlog.h>
+
+#include <GLFW/glfw3.h>
 
 #include <chrono>
 #include <filesystem>
@@ -93,6 +98,16 @@ bool Engine::startup() {
     saves_root_ = std::filesystem::path(ENGINE_SOURCE_DIR) / "saves";
     chunk_store_.init(static_cast<uint32_t>(config_.streaming().max_loaded_chunks));
     (void)try_load_world_save();
+
+    if (!physics_.init()) {
+        SPDLOG_ERROR("Failed to initialize PhysicsSystem");
+        ui_host_.shutdown();
+        renderer_.shutdown();
+        platform_.shutdown();
+        jobs_.shutdown();
+        world_ = flecs::world{};
+        return false;
+    }
     if (config_.thin_terrain_preview()) {
         thin_terrain_.init(world_, chunk_store_, config_.world());
         thin_terrain_.build_cpu_meshes();
@@ -108,6 +123,11 @@ bool Engine::startup() {
         config_.streaming().horizontal_radius_chunks,
         config_.streaming().vertical_radius_chunks);
 
+    refresh_spawn_gate();
+    if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+        player_motor_.sync_capsule_from_camera(camera_component->camera.position);
+    }
+
     started_ = true;
     SPDLOG_INFO("Engine startup complete (steps 1-11)");
     return true;
@@ -119,6 +139,7 @@ void Engine::shutdown() {
     }
 
     (void)save_world_to_disk();
+    physics_.shutdown();
     set_chunk_gpu_services(nullptr);
     ui_host_.shutdown();
     renderer_.shutdown();
@@ -174,6 +195,7 @@ bool Engine::try_load_world_save() {
     }
 
     apply_player_position(loaded_position);
+    spawn_gate_.reset();
     SPDLOG_INFO("Loaded world save from {}", SaveService::world_dir(request).string());
     return true;
 }
@@ -187,6 +209,71 @@ bool Engine::save_world_to_disk() {
 
     SPDLOG_INFO("Saved world to {}", SaveService::world_dir(request).string());
     return true;
+}
+
+Capsule Engine::player_capsule() const {
+    if (const auto* camera_component = player_fly_.get<CameraComponent>()) {
+        Capsule capsule{};
+        capsule.radius = PlayerMotor::kDefaultRadius;
+        capsule.half_height = PlayerMotor::kDefaultHalfHeight;
+        capsule.center = camera_component->camera.position - glm::vec3{0.f, PlayerMotor::kEyeHeight, 0.f};
+        return capsule;
+    }
+    return {};
+}
+
+void Engine::refresh_spawn_gate() {
+    if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
+        const Capsule capsule = player_capsule();
+        const glm::ivec3 world_blocks = glm::ivec3(glm::floor(camera_component->camera.position));
+        const ChunkCoord spawn_chunk = block_to_chunk(world_blocks.x, world_blocks.y, world_blocks.z);
+        const WorldPosition player_pos = WorldPosition::from_world_blocks(
+            world_blocks.x, world_blocks.y, world_blocks.z);
+        update_streaming(
+            chunk_store_, world_, config_.streaming(), config_.world(), player_pos);
+        (void)spawn_gate_.update(chunk_store_, capsule, spawn_chunk);
+    }
+}
+
+void Engine::tick_player_simulation() {
+    if (!spawn_gate_.is_ready()) {
+        return;
+    }
+
+    auto* camera_component = player_fly_.get_mut<CameraComponent>();
+    if (!camera_component) {
+        return;
+    }
+
+    const bool was_grounded = player_motor_.state().on_ground;
+    player_motor_.tick_walk(
+        camera_component->camera,
+        input_,
+        static_cast<float>(SimClock::fixed_dt),
+        chunk_store_,
+        player_motor_config_,
+        voxel_movement_config_);
+
+    origin_rebase_.maybe_rebase(world_, camera_component->camera.position, config_.world());
+
+    const bool grounded = player_motor_.state().on_ground;
+    const glm::vec3 foot_pos = player_motor_.state().capsule.center;
+    const flecs::entity world_root = world_.lookup("WorldRoot");
+    if (!world_root.is_alive()) {
+        return;
+    }
+
+    if (grounded && !was_grounded) {
+        const EvtPlayerLanded evt{.world_position = foot_pos};
+        world_.event<EvtPlayerLanded>().id<WorldRoot>().entity(world_root).ctx(evt).emit();
+    }
+
+    const glm::vec3 horiz_vel{
+        player_motor_.state().velocity.x, 0.f, player_motor_.state().velocity.z};
+    if (grounded && glm::length(horiz_vel) > 0.1f) {
+        const EvtPlayerFootstep evt{.world_position = foot_pos};
+        world_.event<EvtPlayerFootstep>().id<WorldRoot>().entity(world_root).ctx(evt).emit();
+    }
 }
 
 void Engine::render_build(std::uint32_t snapshot_slot) {
@@ -235,7 +322,7 @@ void Engine::run() {
         }
 
         sim_clock_.advance(frame_delta);
-        sim_tick_ += sim_clock_.step([]() {});
+        sim_tick_ += sim_clock_.step([this]() { tick_player_simulation(); });
 
         if (input_.save_pressed()) {
             (void)save_world_to_disk();
@@ -245,9 +332,23 @@ void Engine::run() {
         }
 
         if (auto* camera_component = player_fly_.get_mut<CameraComponent>()) {
-            CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
-            origin_rebase_.maybe_rebase(
-                world_, camera_component->camera.position, config_.world());
+            const bool fly_toggle_now = glfwGetKey(platform_.window(), GLFW_KEY_F) == GLFW_PRESS;
+            if (fly_toggle_now && !fly_mode_toggle_down_) {
+                walk_mode_ = !walk_mode_;
+            }
+            fly_mode_toggle_down_ = fly_toggle_now;
+
+            if (!spawn_gate_.is_ready()) {
+                refresh_spawn_gate();
+            }
+
+            if (walk_mode_ && spawn_gate_.is_ready()) {
+                CameraSystem::update_look_from_input(*camera_component, input_);
+            } else {
+                CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
+                origin_rebase_.maybe_rebase(
+                    world_, camera_component->camera.position, config_.world());
+            }
 
             handle_block_input(
                 world_,
@@ -264,6 +365,11 @@ void Engine::run() {
                 WorldPosition::from_world_blocks(world_blocks.x, world_blocks.y, world_blocks.z);
             update_streaming(
                 chunk_store_, world_, config_.streaming(), config_.world(), player_pos);
+
+            if (!walk_mode_ || !spawn_gate_.is_ready()) {
+                origin_rebase_.maybe_rebase(
+                    world_, camera_component->camera.position, config_.world());
+            }
         }
 
         const auto now = clock::now();

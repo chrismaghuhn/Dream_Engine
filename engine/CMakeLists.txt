@@ -15,6 +15,8 @@ set(ENGINE_CORE_SOURCES
     render/StreamingTerrainSystem.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
+    gameplay/PlayerMotor.cpp
+    gameplay/PlayerSpawnReadyGate.cpp
     gameplay/BlockInteraction.cpp
     persist/AtomicFile.cpp
     persist/PlayerDat.cpp
@@ -66,6 +68,23 @@ target_compile_definitions(engine_render PUBLIC
 add_dependencies(engine_render shaders_spv)
 target_include_directories(engine_render PUBLIC ${VulkanMemoryAllocator_SOURCE_DIR}/include)
 
+set(ENGINE_PHYSICS_SOURCES
+    physics/PhysicsSystem.cpp
+    physics/VoxelCapsuleResolver.cpp
+)
+
+add_library(engine_physics STATIC ${ENGINE_PHYSICS_SOURCES})
+target_include_directories(engine_physics PUBLIC ${CMAKE_SOURCE_DIR})
+target_link_libraries(engine_physics PUBLIC glm::glm spdlog::spdlog)
+if(ENGINE_JOLT)
+    if(TARGET Jolt)
+        target_link_libraries(engine_physics PUBLIC Jolt)
+        target_compile_definitions(engine_physics PUBLIC ENGINE_HAS_JOLT=1)
+    else()
+        message(STATUS "engine_physics: Jolt BLOCKED (target not built; voxel resolver only)")
+    endif()
+endif()
+
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})
 target_include_directories(engine_core PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_definitions(engine_core PUBLIC ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -75,6 +94,7 @@ target_link_libraries(engine_core PUBLIC
     tomlplusplus::tomlplusplus
     engine_platform
     engine_render
+    engine_physics
     flecs_static
     enkiTS
 )

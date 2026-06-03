@@ -115,3 +115,40 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(VulkanMemoryAllocator)
+
+# --- M6: Jolt Physics (sensor stub; terrain collision uses VoxelCapsuleResolver) ---
+
+option(ENGINE_JOLT "Fetch and link Jolt Physics" ON)
+
+if(ENGINE_JOLT)
+    set(DOUBLE_PRECISION OFF CACHE BOOL "" FORCE)
+    set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "" FORCE)
+    set(CROSS_PLATFORM_DETERMINISTIC OFF CACHE BOOL "" FORCE)
+    set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+    set(USE_AVX OFF CACHE BOOL "" FORCE)
+    set(USE_AVX2 OFF CACHE BOOL "" FORCE)
+    set(USE_AVX512 OFF CACHE BOOL "" FORCE)
+    set(USE_SSE4_1 OFF CACHE BOOL "" FORCE)
+    set(USE_SSE4_2 OFF CACHE BOOL "" FORCE)
+    set(USE_LZCNT OFF CACHE BOOL "" FORCE)
+    set(USE_TZCNT OFF CACHE BOOL "" FORCE)
+    set(USE_F16C OFF CACHE BOOL "" FORCE)
+    set(USE_FMADD OFF CACHE BOOL "" FORCE)
+    set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(TARGET_TEST_ALL OFF CACHE BOOL "" FORCE)
+    set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(
+        JoltPhysics
+        GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+        GIT_TAG        v5.2.0
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(JoltPhysics)
+    if(TARGET Jolt)
+        message(STATUS "Jolt Physics: target available (M6 sensor stub)")
+    else()
+        message(WARNING "Jolt Physics: FetchContent ok but Jolt target missing (M6 BLOCKED)")
+    endif()
+endif()

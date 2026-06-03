@@ -23,6 +23,7 @@ public:
     static flecs::entity spawn_player_fly(flecs::world& ecs, const glm::vec3& position = {0.f, 8.f, 0.f});
 
     static void update_from_input(CameraComponent& camera, const Input& input, float fly_speed);
+    static void update_look_from_input(CameraComponent& camera, const Input& input);
     static void build_render_snapshot(
         const CameraComponent& camera,
         const glm::vec3& render_origin,

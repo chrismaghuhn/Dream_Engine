@@ -52,15 +52,18 @@ void Input::update_keys(GLFWwindow* window) {
 
     const bool save_now = glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS;
     const bool load_now = glfwGetKey(window, GLFW_KEY_F9) == GLFW_PRESS;
+    const bool jump_now = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
 
     break_pressed_ = break_now && !break_down_;
     place_pressed_ = place_now && !place_down_;
     save_pressed_ = save_now && !save_down_;
     load_pressed_ = load_now && !load_down_;
+    jump_pressed_ = jump_now && !jump_down_;
     break_down_ = break_now;
     place_down_ = place_now;
     save_down_ = save_now;
     load_down_ = load_now;
+    jump_down_ = jump_now;
 }
 
 void Input::update_mouse(GLFWwindow* window) {

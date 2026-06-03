@@ -45,6 +45,14 @@ struct EvtBlockPlaced {
     BlockState new_state{};
 };
 
+struct EvtPlayerFootstep {
+    glm::vec3 world_position{};
+};
+
+struct EvtPlayerLanded {
+    glm::vec3 world_position{};
+};
+
 // Chunk entity components (§7).
 struct ChunkSlotRef {
     uint32_t slot_id = 0;

@@ -14,13 +14,18 @@ flecs::entity CameraSystem::spawn_player_fly(flecs::world& ecs, const glm::vec3&
     return ecs.entity("PlayerFly").set<CameraComponent>(camera_component);
 }
 
+void CameraSystem::update_look_from_input(CameraComponent& camera_component, const Input& input) {
+    Camera& camera = camera_component.camera;
+    camera.yaw += input.mouse_delta_x() * kMouseSensitivity;
+    camera.pitch -= input.mouse_delta_y() * kMouseSensitivity;
+    camera.pitch = std::clamp(camera.pitch, -89.f, 89.f);
+}
+
 void CameraSystem::update_from_input(CameraComponent& camera_component, const Input& input, float fly_speed) {
     Camera& camera = camera_component.camera;
     const float delta_time = input.delta_time();
 
-    camera.yaw += input.mouse_delta_x() * kMouseSensitivity;
-    camera.pitch -= input.mouse_delta_y() * kMouseSensitivity;
-    camera.pitch = std::clamp(camera.pitch, -89.f, 89.f);
+    update_look_from_input(camera_component, input);
 
     glm::vec3 move_dir{0.f};
     if (input.move_forward()) {

@@ -17,6 +17,8 @@ WorldModule::WorldModule(flecs::world& ecs) {
     ECS_EVENT(ecs, EvtChunkMeshReady);
     ECS_EVENT(ecs, EvtBlockBroken);
     ECS_EVENT(ecs, EvtBlockPlaced);
+    ECS_EVENT(ecs, EvtPlayerFootstep);
+    ECS_EVENT(ecs, EvtPlayerLanded);
     ecs.component<ChunkCoord>();
     ecs.component<ChunkSlotRef>();
     ecs.component<ChunkDirty>();
