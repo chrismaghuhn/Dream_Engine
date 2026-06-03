@@ -50,6 +50,7 @@ public:
     [[nodiscard]] bool is_live(std::uint32_t slot_id) const;
     [[nodiscard]] std::size_t bytes_used() const { return bytes_used_; }
     [[nodiscard]] std::size_t bytes_budget() const { return bytes_budget_; }
+    void set_bytes_budget(std::size_t bytes_budget) { bytes_budget_ = bytes_budget; }
 
 private:
     [[nodiscard]] GpuMeshSlot* find_slot(std::uint32_t slot_id);

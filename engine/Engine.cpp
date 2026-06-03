@@ -81,6 +81,7 @@ bool Engine::startup() {
     }
 
     config_.finalize_gpu(renderer_.gpu_caps());
+    renderer_.apply_memory_budget(config_.memory());
     SPDLOG_INFO("GPU finalize: {} MiB mesh VRAM budget, preset {}",
                 config_.memory().gpu_mesh_vram / (1024 * 1024),
                 static_cast<int>(config_.render_preset()));
@@ -477,6 +478,8 @@ void Engine::run() {
         const std::uint32_t pending_mesh_jobs = config_.thin_terrain_preview()
             ? 0
             : static_cast<std::uint32_t>(streaming_terrain_.count_pending_mesh_jobs());
+        const std::uint32_t gpu_mesh_budget_mib =
+            static_cast<std::uint32_t>(renderer_.mesh_pool().bytes_budget() / (1024 * 1024));
 
         UiInventoryState inventory_ui{
             .inventory = &inventory_,
@@ -491,6 +494,7 @@ void Engine::run() {
                 .mesh_ready_sections = mesh_ready_sections,
                 .gpu_ready_sections = gpu_ready_sections,
                 .pending_mesh_jobs = pending_mesh_jobs,
+                .gpu_mesh_budget_mib = gpu_mesh_budget_mib,
             },
             inventory_ui);
         inventory_open_ = inventory_ui.inventory_open;

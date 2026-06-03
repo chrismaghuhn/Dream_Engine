@@ -21,6 +21,7 @@ struct UiOverlayStats {
     std::uint32_t mesh_ready_sections = 0;
     std::uint32_t gpu_ready_sections = 0;
     std::uint32_t pending_mesh_jobs = 0;
+    std::uint32_t gpu_mesh_budget_mib = 0;
 };
 
 struct UiInventoryState {

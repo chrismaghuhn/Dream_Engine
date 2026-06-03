@@ -52,6 +52,8 @@ public:
     [[nodiscard]] VkRenderPass render_pass() const { return render_pass_; }
 
     void set_ui_host(UiHost* ui_host) { ui_host_ = ui_host; }
+    /// Call after EngineConfig::finalize_gpu — mesh pool is created in init() with budget 0.
+    void apply_memory_budget(const MemoryBudget& memory_budget);
     void render_frame(std::uint32_t snapshot_slot);
 
 private:

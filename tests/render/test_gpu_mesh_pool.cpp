@@ -15,6 +15,14 @@ TEST_CASE("pick_mesh_bucket selects smallest fitting bucket") {
     REQUIRE(pick_mesh_bucket(100, 70000) == MeshBucket::B256K);
 }
 
+TEST_CASE("gpu_mesh_pool rejects allocation when budget is zero") {
+    GpuMeshPool pool;
+    pool.init(VK_NULL_HANDLE, VK_NULL_HANDLE, 0, nullptr);
+    REQUIRE(pool.allocate(128, 128) == 0);
+    pool.set_bytes_budget(1024 * 1024);
+    REQUIRE(pool.allocate(128, 128) == 0);
+}
+
 TEST_CASE("gpu_mesh_pool_regrow_enqueues_deferred_free") {
     std::uint32_t freed_slot = 0;
     bool freed = false;
