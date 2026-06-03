@@ -120,7 +120,6 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
                                                                kIndirectBufferDraws,
                                                                sizeof(TerrainPass::FrameUniformGpu));
     per_frame_writes_->init(context_.device(), context_.physical_device());
-
     const std::filesystem::path shader_dir = std::filesystem::path(ENGINE_SHADER_DIR);
     const std::filesystem::path shader_source_dir = std::filesystem::path(ENGINE_SHADER_SOURCE_DIR);
     shader_manager_.init(shader_source_dir, shader_dir);
@@ -180,10 +179,47 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
 
     initialized_ = true;
 
+    // Initialize any extensions registered before init() ran.
+    for (RegisteredExtension& entry : extensions_) {
+        init_extension(entry);
+    }
+
     SPDLOG_INFO("Renderer initialized: {} MiB VRAM, queue family {}",
                 gpu_caps_.vram_bytes / (1024 * 1024),
                 gpu_caps_.graphics_queue_family);
     return true;
+}
+
+PassExtensionInitContext Renderer::make_extension_init_context() const {
+    return PassExtensionInitContext{
+        .context = const_cast<VulkanContext*>(&context_),
+        .render_pass = render_pass_,
+        .extent = context_.swapchain_extent(),
+        // Use snapshot_count so per-extension per-frame resources (e.g. vertex
+        // buffers in DebugDrawPass) are sized to the actual ring depth, not just
+        // kFramesInFlight. Extensions index their per-frame resources by
+        // frame_slot which now equals snapshot_slot (0..slot_count-1).
+        .frames_in_flight = snapshot_ring_.slot_count(),
+    };
+}
+
+void Renderer::init_extension(RegisteredExtension& entry) {
+    if (entry.extension == nullptr || entry.initialized) {
+        return;
+    }
+    entry.extension->on_renderer_init(make_extension_init_context());
+    entry.initialized = true;
+}
+
+void Renderer::register_extension(std::string_view insertion_point, IPassExtension* extension) {
+    if (extension == nullptr) {
+        return;
+    }
+    RegisteredExtension entry{std::string(insertion_point), extension, false};
+    if (initialized_ && render_pass_ != VK_NULL_HANDLE) {
+        init_extension(entry);
+    }
+    extensions_.push_back(std::move(entry));
 }
 
 void Renderer::apply_memory_budget(const MemoryBudget& memory_budget) {
@@ -206,6 +242,13 @@ void Renderer::shutdown() {
 
     if (context_.device() != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(context_.device());
+    }
+
+    for (RegisteredExtension& entry : extensions_) {
+        if (entry.initialized && entry.extension != nullptr) {
+            entry.extension->on_renderer_shutdown(context_);
+            entry.initialized = false;
+        }
     }
 
     sky_pass_.shutdown();
@@ -309,7 +352,7 @@ void Renderer::render_frame(const std::uint32_t snapshot_slot,
     frame_uniforms_.render_origin = snapshot.render_origin;
 
     std::uint32_t image_index = 0;
-    if (!begin_frame(image_index)) {
+    if (!begin_frame(image_index, snapshot_slot)) {
         return;
     }
 
@@ -318,13 +361,13 @@ void Renderer::render_frame(const std::uint32_t snapshot_slot,
     ++frame_index_;
 }
 
-bool Renderer::begin_frame(std::uint32_t& image_index) {
-    const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
-
+bool Renderer::begin_frame(std::uint32_t& image_index, const std::uint32_t snapshot_slot) {
+    // Index by snapshot_slot: pick_write_slot() already waited for the fence,
+    // so this slot's command buffer and semaphores are guaranteed idle.
     const VkResult acquire_result = vkAcquireNextImageKHR(context_.device(),
                                                             context_.swapchain(),
                                                             UINT64_MAX,
-                                                            image_available_semaphores_[frame_slot],
+                                                            image_available_semaphores_[snapshot_slot],
                                                             VK_NULL_HANDLE,
                                                             &image_index);
 
@@ -347,8 +390,7 @@ bool Renderer::begin_frame(std::uint32_t& image_index) {
 void Renderer::record_frame(const std::uint32_t image_index,
                             const std::uint32_t snapshot_slot,
                             const std::function<void(WorldRenderSnapshot&)>& fill_snapshot) {
-    const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
-    VkCommandBuffer command_buffer = command_buffers_[frame_slot];
+    VkCommandBuffer command_buffer = command_buffers_[snapshot_slot];
     const WorldRenderSnapshot& snapshot = snapshot_ring_.snapshot(snapshot_slot);
 
     VK_CHECK(vkResetCommandBuffer(command_buffer, 0));
@@ -400,6 +442,25 @@ void Renderer::record_frame(const std::uint32_t image_index,
                        terrain_pass_.frame_descriptor_set(frame_index_),
                        context_.swapchain_extent(),
                        opaque_draw_count);
+
+    // Pass extensions at "before_imgui": world geometry is complete, so debug
+    // lines / character meshes depth-test correctly against opaque + water.
+    if (!extensions_.empty()) {
+        const PassExtensionRecordContext ext_ctx{
+            .command_buffer = command_buffer,
+            .frame_index = static_cast<std::uint32_t>(frame_index_),
+            .frame_slot = snapshot_slot,
+            .extent = context_.swapchain_extent(),
+            .view = frame_uniforms_.view,
+            .proj = frame_uniforms_.proj,
+        };
+        for (RegisteredExtension& entry : extensions_) {
+            if (entry.initialized && entry.insertion_point == pass_insertion::kBeforeImgui) {
+                entry.extension->record(ext_ctx);
+            }
+        }
+    }
+
     if (ui_host_ != nullptr) {
         ui_host_->render(command_buffer);
     }
@@ -408,12 +469,11 @@ void Renderer::record_frame(const std::uint32_t image_index,
 }
 
 void Renderer::end_frame(const std::uint32_t image_index, const std::uint32_t snapshot_slot) {
-    const std::uint32_t frame_slot = frame_index_ % kFramesInFlight;
-    VkCommandBuffer command_buffer = command_buffers_[frame_slot];
+    VkCommandBuffer command_buffer = command_buffers_[snapshot_slot];
 
     const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const std::array<VkSemaphore, 1> wait_semaphores = {image_available_semaphores_[frame_slot]};
-    const std::array<VkSemaphore, 1> signal_semaphores = {render_finished_semaphores_[frame_slot]};
+    const std::array<VkSemaphore, 1> wait_semaphores = {image_available_semaphores_[snapshot_slot]};
+    const std::array<VkSemaphore, 1> signal_semaphores = {render_finished_semaphores_[image_index]};
 
     const VkSubmitInfo submit_info{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -529,6 +589,12 @@ void Renderer::recreate_render_passes() {
                           *per_frame_writes_,
                           terrain_pass_.descriptor_layout())) {
         SPDLOG_ERROR("Failed to recreate water pass");
+    }
+
+    for (RegisteredExtension& entry : extensions_) {
+        if (entry.initialized && entry.extension != nullptr) {
+            entry.extension->on_swapchain_recreate(make_extension_init_context());
+        }
     }
 }
 
@@ -718,26 +784,44 @@ bool Renderer::create_command_pool_and_buffers() {
     };
     VK_CHECK(vkCreateCommandPool(context_.device(), &pool_info, nullptr, &command_pool_));
 
-    command_buffers_.resize(kFramesInFlight);
+    // One command buffer per snapshot slot so that snapshot_slot can be used
+    // directly as the index without a modulo, eliminating the frame_slot vs.
+    // snapshot_slot mismatch that caused the semaphore-reuse validation errors.
+    const std::uint32_t slot_count = snapshot_ring_.slot_count();
+    command_buffers_.resize(slot_count);
     const VkCommandBufferAllocateInfo alloc_info{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = command_pool_,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = kFramesInFlight,
+        .commandBufferCount = slot_count,
     };
     VK_CHECK(vkAllocateCommandBuffers(context_.device(), &alloc_info, command_buffers_.data()));
     return true;
 }
 
 bool Renderer::create_sync_objects() {
-    image_available_semaphores_.resize(kFramesInFlight);
-    render_finished_semaphores_.resize(kFramesInFlight);
+    // image_available: one per snapshot slot — indexed by snapshot_slot in begin_frame.
+    // pick_write_slot() waits for the slot's fence before reuse, guaranteeing the
+    // previous submit that waited on this semaphore has completed.
+    const std::uint32_t slot_count = snapshot_ring_.slot_count();
+    image_available_semaphores_.resize(slot_count);
+
+    // render_finished: one per swapchain image — indexed by image_index in end_frame.
+    // This prevents re-signalling the semaphore while the presentation engine may
+    // still be consuming it from a previous present of the same swapchain image.
+    const std::uint32_t image_count =
+        static_cast<std::uint32_t>(context_.swapchain_images().size());
+    render_finished_semaphores_.resize(image_count);
 
     const VkSemaphoreCreateInfo semaphore_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 
-    for (std::uint32_t i = 0; i < kFramesInFlight; ++i) {
-        VK_CHECK(vkCreateSemaphore(context_.device(), &semaphore_info, nullptr, &image_available_semaphores_[i]));
-        VK_CHECK(vkCreateSemaphore(context_.device(), &semaphore_info, nullptr, &render_finished_semaphores_[i]));
+    for (std::uint32_t i = 0; i < slot_count; ++i) {
+        VK_CHECK(vkCreateSemaphore(context_.device(), &semaphore_info, nullptr,
+                                   &image_available_semaphores_[i]));
+    }
+    for (std::uint32_t i = 0; i < image_count; ++i) {
+        VK_CHECK(vkCreateSemaphore(context_.device(), &semaphore_info, nullptr,
+                                   &render_finished_semaphores_[i]));
     }
 
     return true;

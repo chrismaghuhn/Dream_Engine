@@ -39,3 +39,35 @@ target_link_libraries(engine_tests PRIVATE engine_core engine_audio Catch2::Catc
 target_compile_definitions(engine_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 include(Catch)
 catch_discover_tests(engine_tests)
+
+# Movement Foundation tests link ONLY engine_movement_core, proving the core
+# logic builds free of Vulkan/GLFW/flecs.
+add_executable(movement_tests
+    movement/test_entity_world.cpp
+    movement/test_text_parser.cpp
+    movement/test_arena_loader.cpp
+    movement/test_save_service.cpp
+    movement/test_collision.cpp
+    movement/test_camera_rig.cpp
+)
+target_link_libraries(movement_tests PRIVATE engine_movement_core Catch2::Catch2WithMain)
+target_compile_definitions(movement_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(movement_tests)
+
+# Character (glTF ingest, skeleton validation, animation, combat FSM, hit detection).
+# Links only engine_character_core — no Vulkan dependency.
+add_executable(character_tests
+    character/test_gltf_ingest.cpp
+    character/test_skeleton_compat.cpp
+    character/test_character_catalog.cpp
+    character/test_attack_data.cpp
+    character/test_combo_fsm.cpp
+    character/test_hit_window.cpp
+    character/test_hit_overlap.cpp
+)
+target_link_libraries(character_tests PRIVATE engine_character_core Catch2::Catch2WithMain)
+target_compile_definitions(character_tests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    ENGINE_BINARY_DIR="${CMAKE_BINARY_DIR}"
+)
+catch_discover_tests(character_tests)

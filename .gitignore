@@ -4,3 +4,6 @@ build-*/
 .vs/
 out/
 saves/
+movement_log.txt
+assets/Meshy_AI_Voxel_*/
+assets/*.glb

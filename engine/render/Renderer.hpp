@@ -5,6 +5,7 @@
 #include "engine/render/GpuDeferredFreeQueue.hpp"
 #include "engine/render/GpuMeshPool.hpp"
 #include "engine/render/MeshUploadQueue.hpp"
+#include "engine/render/PassExtension.hpp"
 #include "engine/render/PerFrameGpuWrites.hpp"
 #include "engine/render/SnapshotRing.hpp"
 #include "engine/render/ShaderManager.hpp"
@@ -17,6 +18,8 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -59,6 +62,11 @@ public:
     [[nodiscard]] VkRenderPass render_pass() const { return render_pass_; }
 
     void set_ui_host(UiHost* ui_host) { ui_host_ = ui_host; }
+
+    // Register a pluggable pass recorded at a named insertion point inside the
+    // main render pass. If the renderer is already initialized, the extension
+    // is initialized immediately. The renderer does not take ownership.
+    void register_extension(std::string_view insertion_point, IPassExtension* extension);
     /// Call after EngineConfig::finalize_gpu — mesh pool is created in init() with budget 0.
     void apply_memory_budget(const MemoryBudget& memory_budget);
     [[nodiscard]] bool device_lost() const { return device_lost_; }
@@ -90,7 +98,7 @@ private:
     void process_deferred_frees();
     void recreate_render_passes();
 
-    bool begin_frame(std::uint32_t& image_index);
+    bool begin_frame(std::uint32_t& image_index, std::uint32_t snapshot_slot);
     void end_frame(std::uint32_t image_index, std::uint32_t snapshot_slot);
     void record_frame(std::uint32_t image_index,
                       std::uint32_t snapshot_slot,
@@ -118,6 +126,15 @@ private:
 
     std::vector<VkSemaphore> image_available_semaphores_;
     std::vector<VkSemaphore> render_finished_semaphores_;
+
+    struct RegisteredExtension {
+        std::string insertion_point;
+        IPassExtension* extension = nullptr;
+        bool initialized = false;
+    };
+    void init_extension(RegisteredExtension& entry);
+    [[nodiscard]] PassExtensionInitContext make_extension_init_context() const;
+    std::vector<RegisteredExtension> extensions_;
 
     GpuCaps gpu_caps_{};
     FrameUniformStub frame_uniforms_{};

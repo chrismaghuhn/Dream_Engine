@@ -1,0 +1,27 @@
+# combat_attacks.txt — v1 attack table (Movement Foundation Combat Slice)
+# Fields: clip, hit_window [start end], range, radius, recovery
+# hit_window: normalized clip time [0, 1]
+
+attack high_kick {
+    clip High_Kick
+    hit_window 0.35 0.48
+    range 1.25
+    radius 0.35
+    recovery 0.25
+}
+
+attack elbow_strike {
+    clip Elbow_Strike
+    hit_window 0.32 0.44
+    range 0.85
+    radius 0.30
+    recovery 0.20
+}
+
+attack counterstrike {
+    clip Counterstrike
+    hit_window 0.38 0.55
+    range 1.05
+    radius 0.35
+    recovery 0.35
+}

@@ -1,0 +1,62 @@
+# combat_test.arena — Movement Foundation v1 Combat Slice arena
+# Player + Training Dummy + walls
+
+arena "combat_test" version 1
+{
+    entity "player"
+    {
+        transform position 0 1.1 0 yaw 0
+        player_controller speed 4.0 jump_velocity 7.0 gravity 18.0
+        collider capsule radius 0.4 height 1.8
+        camera_rig yaw 0 pitch -15 distance 5.0 height 1.7
+        debug_name "Player"
+    }
+
+    entity "training_dummy"
+    {
+        transform position 3 1.0 0 yaw 180
+        collider box half_extents 0.4 0.9 0.4
+        debug_name "Training Dummy"
+    }
+
+    entity "floor"
+    {
+        transform position 0 -0.5 0 yaw 0
+        collider box half_extents 50 0.5 50
+        debug_name "Floor"
+    }
+
+    entity "ground_plane"
+    {
+        transform position 0 0 0 yaw 0
+        collider ground
+    }
+
+    entity "wall_north"
+    {
+        transform position 0 1 -12 yaw 0
+        collider box half_extents 12 1 0.5
+        debug_name "Wall North"
+    }
+
+    entity "wall_south"
+    {
+        transform position 0 1 12 yaw 0
+        collider box half_extents 12 1 0.5
+        debug_name "Wall South"
+    }
+
+    entity "wall_east"
+    {
+        transform position 12 1 0 yaw 0
+        collider box half_extents 0.5 1 12
+        debug_name "Wall East"
+    }
+
+    entity "wall_west"
+    {
+        transform position -12 1 0 yaw 0
+        collider box half_extents 0.5 1 12
+        debug_name "Wall West"
+    }
+}

@@ -111,6 +111,8 @@ target_link_libraries(engine_audio PUBLIC
     miniaudio
 )
 
+add_subdirectory(${CMAKE_SOURCE_DIR}/engine/character ${CMAKE_BINARY_DIR}/engine/character)
+
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})
 target_include_directories(engine_core PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_definitions(engine_core PUBLIC ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
