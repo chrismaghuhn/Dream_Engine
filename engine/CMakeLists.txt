@@ -27,6 +27,7 @@ target_include_directories(engine_render PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_definitions(engine_render PUBLIC VK_NO_PROTOTYPES)
 target_link_libraries(engine_render PUBLIC
     engine_platform
+    spdlog::spdlog
     volk
     Vulkan::Vulkan
 )
