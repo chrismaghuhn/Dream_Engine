@@ -4,10 +4,12 @@
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/Log.hpp"
 #include "engine/gameplay/CameraSystem.hpp"
+#include "engine/world/StreamingSystem.hpp"
 #include "engine/world/WorldModule.hpp"
 
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <string>
 
 #ifndef ENGINE_SOURCE_DIR
@@ -80,8 +82,15 @@ bool Engine::startup() {
                 config_.memory().gpu_mesh_vram / (1024 * 1024),
                 static_cast<int>(config_.render_preset()));
 
+    chunk_store_.init(static_cast<uint32_t>(config_.streaming().max_loaded_chunks));
+    SPDLOG_INFO(
+        "ChunkStore init: max {} chunks, streaming radius xz={} y={}",
+        config_.streaming().max_loaded_chunks,
+        config_.streaming().horizontal_radius_chunks,
+        config_.streaming().vertical_radius_chunks);
+
     started_ = true;
-    SPDLOG_INFO("Engine startup complete (steps 1-9b)");
+    SPDLOG_INFO("Engine startup complete (steps 1-11)");
     return true;
 }
 
@@ -117,6 +126,9 @@ void Engine::render_build(std::uint32_t snapshot_slot) {
 }
 
 void Engine::run() {
+    using clock = std::chrono::steady_clock;
+    auto last_chunk_log = clock::now();
+
     while (!should_close()) {
         platform_.poll();
         input_.begin_frame(platform_.window());
@@ -125,6 +137,18 @@ void Engine::run() {
             CameraSystem::update_from_input(*camera_component, input_, CameraSystem::kDefaultFlySpeed);
             origin_rebase_.maybe_rebase(
                 world_, camera_component->camera.position, config_.world());
+
+            const glm::ivec3 world_blocks = glm::ivec3(glm::floor(camera_component->camera.position));
+            const WorldPosition player_pos =
+                WorldPosition::from_world_blocks(world_blocks.x, world_blocks.y, world_blocks.z);
+            update_streaming(
+                chunk_store_, world_, config_.streaming(), config_.world(), player_pos);
+        }
+
+        const auto now = clock::now();
+        if (now - last_chunk_log >= std::chrono::seconds(1)) {
+            SPDLOG_INFO("Loaded chunks: {}", chunk_store_.loaded_count());
+            last_chunk_log = now;
         }
 
         const std::uint32_t snapshot_slot = renderer_.snapshot_ring().pick_write_slot();

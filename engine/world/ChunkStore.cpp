@@ -4,6 +4,14 @@
 
 namespace engine {
 
+void ChunkStore::init(uint32_t max_loaded_chunks) {
+    max_loaded_chunks_ = max_loaded_chunks;
+}
+
+uint32_t ChunkStore::loaded_count() const {
+    return static_cast<uint32_t>(coord_to_slot_.size());
+}
+
 const Chunk* ChunkStore::try_get(ChunkCoord coord) const {
     const auto it = coord_to_slot_.find(coord);
     if (it == coord_to_slot_.end()) {
@@ -23,6 +31,10 @@ Chunk* ChunkStore::try_get(ChunkCoord coord) {
 Chunk* ChunkStore::allocate(ChunkCoord coord) {
     if (coord_to_slot_.contains(coord)) {
         return try_get(coord);
+    }
+
+    if (max_loaded_chunks_ > 0 && loaded_count() >= max_loaded_chunks_) {
+        return nullptr;
     }
 
     uint32_t slot_id = 0;

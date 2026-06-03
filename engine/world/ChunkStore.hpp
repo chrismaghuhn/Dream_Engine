@@ -33,6 +33,19 @@ struct ChunkCoordHash {
 
 class ChunkStore {
 public:
+    void init(uint32_t max_loaded_chunks);
+    [[nodiscard]] uint32_t max_loaded_chunks() const { return max_loaded_chunks_; }
+    [[nodiscard]] uint32_t loaded_count() const;
+
+    template<typename Fn>
+    void for_each_loaded(Fn&& fn) const {
+        for (const auto& [coord, slot_id] : coord_to_slot_) {
+            if (slots_[slot_id].occupied) {
+                fn(coord);
+            }
+        }
+    }
+
     [[nodiscard]] const Chunk* try_get(ChunkCoord coord) const;
     [[nodiscard]] Chunk* try_get(ChunkCoord coord);
 
@@ -55,6 +68,7 @@ public:
     [[nodiscard]] bool write_block(BlockPos pos, BlockState state);
 
 private:
+    uint32_t max_loaded_chunks_ = 0;
     std::vector<ChunkSlot> slots_{};
     std::vector<uint32_t> free_list_{};
     std::unordered_map<ChunkCoord, uint32_t, ChunkCoordHash> coord_to_slot_{};

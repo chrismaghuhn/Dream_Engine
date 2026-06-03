@@ -1,5 +1,7 @@
 #include "engine/core/EngineConfig.hpp"
 
+#include "engine/world/StreamingConfig.hpp"
+
 #include <toml++/toml.hpp>
 
 #include <algorithm>
@@ -49,6 +51,22 @@ RenderPreset render_preset_from_gpu(const GpuCaps& gpu) {
         return RenderPreset::Medium;
     }
     return RenderPreset::Low;
+}
+
+void apply_streaming_toml_overrides(
+    StreamingConfig& streaming,
+    int horizontal_override,
+    int vertical_override,
+    int max_chunks_override) {
+    if (horizontal_override > 0) {
+        streaming.horizontal_radius_chunks = horizontal_override;
+    }
+    if (vertical_override > 0) {
+        streaming.vertical_radius_chunks = vertical_override;
+    }
+    if (max_chunks_override > 0) {
+        streaming.max_loaded_chunks = max_chunks_override;
+    }
 }
 
 } // namespace
@@ -111,6 +129,17 @@ void EngineConfig::load_toml(const std::string& path) {
         world_.sea_level = read_int_or_default(*world, "sea_level", world_.sea_level);
         world_.rebase_radius = read_float_or_default(*world, "rebase_radius", world_.rebase_radius);
     }
+
+    if (const auto* engine = table["engine"].as_table()) {
+        if (const auto* streaming = (*engine)["streaming"].as_table()) {
+            streaming_horizontal_override_ =
+                read_int_or_default(*streaming, "horizontal_radius_chunks", 0);
+            streaming_vertical_override_ =
+                read_int_or_default(*streaming, "vertical_radius_chunks", 0);
+            streaming_max_chunks_override_ =
+                read_int_or_default(*streaming, "max_loaded_chunks", 0);
+        }
+    }
 }
 
 void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
@@ -119,12 +148,24 @@ void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
     threads_ = thread_config_from_hardware(cpu, overrides);
     memory_ = finalize_cpu_budget(cpu);
     memory_.gpu_mesh_vram = 0;
+    streaming_ = streaming_config_from_hardware(memory_, world_, RenderPreset::Medium);
+    apply_streaming_toml_overrides(
+        streaming_,
+        streaming_horizontal_override_,
+        streaming_vertical_override_,
+        streaming_max_chunks_override_);
     cpu_finalized_ = true;
 }
 
 void EngineConfig::finalize_gpu(const GpuCaps& gpu, RenderPreset preset) {
     render_preset_ = preset == RenderPreset::Medium ? render_preset_from_gpu(gpu) : preset;
     finalize_gpu_budget(memory_, gpu);
+    streaming_ = streaming_config_from_hardware(memory_, world_, render_preset_);
+    apply_streaming_toml_overrides(
+        streaming_,
+        streaming_horizontal_override_,
+        streaming_vertical_override_,
+        streaming_max_chunks_override_);
 }
 
 int EngineConfig::occlusion_grid_radius_chunks() const {
