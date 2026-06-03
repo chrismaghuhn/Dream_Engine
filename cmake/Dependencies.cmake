@@ -37,7 +37,39 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
-# --- Later milestones (not fetched in P0) ---
-# FetchContent_Declare(flecs  GIT_REPOSITORY https://github.com/SanderMertens/flecs.git  GIT_TAG v4.0.0)
-# FetchContent_Declare(glfw   GIT_REPOSITORY https://github.com/glfw/glfw.git           GIT_TAG 3.4)
+# --- M0-7 ---
+
+FetchContent_Declare(
+    flecs
+    GIT_REPOSITORY https://github.com/SanderMertens/flecs.git
+    GIT_TAG        v4.0.0
+    GIT_SHALLOW    TRUE
+)
+set(FLECS_STATIC ON CACHE BOOL "" FORCE)
+set(FLECS_TESTS OFF CACHE BOOL "" FORCE)
+set(FLECS_PIC OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(flecs)
+
+FetchContent_Declare(
+    enkiTS
+    GIT_REPOSITORY https://github.com/dougbinks/enkiTS.git
+    GIT_TAG        v1.11
+    GIT_SHALLOW    TRUE
+    PATCH_COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/patch_enkits.cmake
+)
+set(ENKITS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(enkiTS)
+
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG        3.4
+    GIT_SHALLOW    TRUE
+)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
+# --- Later milestones ---
 # FetchContent_Declare(volk   GIT_REPOSITORY https://github.com/zeux/volk.git           GIT_TAG sdk-1.4.321)

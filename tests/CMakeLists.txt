@@ -4,6 +4,7 @@ add_executable(engine_tests
     core/test_sim_clock.cpp
     core/test_engine_config.cpp
     core/test_default_toml.cpp
+    core/test_job_system.cpp
     world/test_indexing.cpp
     world/test_world_config.cpp
     render/test_snapshot_ring.cpp
