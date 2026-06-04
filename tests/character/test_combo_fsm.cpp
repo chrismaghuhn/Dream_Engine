@@ -80,7 +80,7 @@ TEST_CASE("Startup transitions to Active at hit_start_norm", "[combo_fsm]") {
     REQUIRE(combat.phase == CombatPhase::Active);
 }
 
-TEST_CASE("no buffer input in Recovery returns to Idle after clip ends", "[combo_fsm]") {
+TEST_CASE("Recovery returns to Idle after recovery_seconds", "[combo_fsm]") {
     auto attacks = make_table();
     auto clips = make_clips();
     auto chains = make_chains();
@@ -98,8 +98,9 @@ TEST_CASE("no buffer input in Recovery returns to Idle after clip ends", "[combo
     combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
     REQUIRE(combat.phase == CombatPhase::Recovery);
 
-    anim.time_seconds = 0.51f;
-    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    for (int i = 0; i < 13; ++i) {
+        combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    }
     REQUIRE(combat.phase == CombatPhase::Idle);
 }
 
@@ -173,4 +174,102 @@ TEST_CASE("hitstop freezes FSM for N frames", "[combo_fsm]") {
     }
     REQUIRE_FALSE(combat.hitstop_active);
     REQUIRE(anim.speed == Catch::Approx(1.f));
+}
+
+TEST_CASE("start_attack seeds trimmed start time and time_scale", "[combo_fsm]") {
+    auto attacks = make_table();
+    attacks["punch"].clip_start_norm = 0.2f;   // 0.2 * 0.5s = 0.10s
+    attacks["punch"].clip_end_norm   = 0.8f;
+    attacks["punch"].time_scale      = 1.5f;
+    auto clips = make_clips();
+    auto chains = make_chains();
+    auto tf = make_transform();
+    CombatController combat;
+    AnimationState anim;
+    InputBuffer buffer;
+
+    buffer.push(Kind::Light);
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, 1.f / 60.f);
+
+    REQUIRE(combat.phase == CombatPhase::Startup);
+    REQUIRE(anim.time_seconds == Catch::Approx(0.10f));
+    REQUIRE(anim.speed == Catch::Approx(1.5f));
+}
+
+TEST_CASE("Recovery_DoesNotWaitForRawClipEnd_WhenRawClipHasLongTail", "[combo_fsm]") {
+    AttackTable attacks;
+    attacks["longtail"] =
+        AttackDef{"longtail", "Long", 0.30f, 0.50f, 1.0f, 0.4f, 0.16f, 0.55f, 0.45f};
+    std::vector<AnimClip> clips;
+    {
+        AnimClip c; c.name = "Long"; c.duration_seconds = 5.0f; clips.push_back(c);
+    }
+    ChainTable chains{{kLightChain, {"longtail"}}};
+    auto tf = make_transform();
+    CombatController combat;
+    AnimationState anim;
+    InputBuffer buffer;
+    const float dt = 1.f / 60.f;
+
+    buffer.push(Kind::Light);
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt); // Startup
+    anim.time_seconds = 1.6f;   // nt = 0.32 >= hit_start 0.30 -> Active
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    REQUIRE(combat.phase == CombatPhase::Active);
+    anim.time_seconds = 2.6f;   // nt = 0.52 > hit_end 0.50 -> Recovery
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    REQUIRE(combat.phase == CombatPhase::Recovery);
+
+    for (int i = 0; i < 11; ++i) {
+        combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    }
+    REQUIRE(combat.phase == CombatPhase::Idle);   // returned WITHOUT reaching clip end
+}
+
+TEST_CASE("start_attack rejects missing clip (no silent fallback)", "[combo_fsm]") {
+    AttackTable attacks;
+    attacks["ghost"] =
+        AttackDef{"ghost", "DoesNotExist", 0.30f, 0.50f, 1.0f, 0.4f, 0.2f, 0.60f, 0.50f};
+    std::vector<AnimClip> clips;   // empty -> clip duration resolves to 0
+    ChainTable chains{{kLightChain, {"ghost"}}};
+    auto tf = make_transform();
+    CombatController combat;
+    AnimationState anim;
+    InputBuffer buffer;
+
+    buffer.push(Kind::Light);
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, 1.f / 60.f);
+
+    REQUIRE(combat.phase == CombatPhase::Idle);
+    REQUIRE(combat.combo_ids.empty());
+}
+
+TEST_CASE("chain-cancel only fires at cancel_start_norm", "[combo_fsm]") {
+    auto attacks = make_table();   // punch.cancel_start_norm = 0.70, clip 0.5s
+    auto clips = make_clips();
+    auto chains = make_chains();
+    auto tf = make_transform();
+    CombatController combat;
+    AnimationState anim;
+    InputBuffer buffer;
+    const float dt = 1.f / 60.f;
+
+    buffer.push(Kind::Light);
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    anim.time_seconds = 0.16f;  // Active
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    anim.time_seconds = 0.26f;  // Recovery (nt 0.52 > 0.50)
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    REQUIRE(combat.phase == CombatPhase::Recovery);
+
+    buffer.push(Kind::Light);
+    anim.time_seconds = 0.33f;  // nt 0.66 < 0.70: must NOT chain yet
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    REQUIRE(combat.phase == CombatPhase::Recovery);
+    REQUIRE(combat.combo_index == 0);
+
+    anim.time_seconds = 0.36f;  // nt 0.72 >= 0.70: chains
+    combat_tick(combat, tf, anim, buffer, attacks, clips, chains, dt);
+    REQUIRE(combat.phase == CombatPhase::Startup);
+    REQUIRE(combat.combo_index == 1);
 }
