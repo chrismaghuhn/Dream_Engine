@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-04-phaseA-section-occlusion-skip-design.md` (approved)
 
+**Plan errata (rev. 2):** `face_solid_mask` must be computed for every non-empty section (not only `is_opaque_full`). `section_fully_occluded` checks `face_solid` on neighbors, which can be true on partial sections. Task 4 uses `neighbor_chunk_and_section` (section + chunk boundaries), not chunk-only offsets.
+
 **Build/test commands (Developer PowerShell for VS 2022):**
 ```powershell
 cmake -S . -B build
@@ -97,10 +99,13 @@ void recompute_render_meta() {
     }
     render_meta.is_empty = !any_renderable;
     render_meta.is_opaque_full = any_renderable && all_opaque;
-    if (!render_meta.is_opaque_full) {
+
+    if (render_meta.is_empty) {
         return;
     }
 
+    // face_solid_mask: always for non-empty sections (needed by section_fully_occluded
+    // on neighbors that are not is_opaque_full but still present a solid face layer).
     auto face_layer_solid = [&](Face face) {
         switch (face) {
         case Face::PX:
@@ -270,16 +275,69 @@ bool StreamingTerrainSystem::section_fully_occluded(
 
 Use existing `neighbor_section(store, chunk, section_coord, face)` from `BlockLight.hpp`. Recompute neighbor `render_meta` must already be current (sync on load/write).
 
-- [ ] **Step 3: Add render test file**
+- [ ] **Step 3: Add render tests (precise semantics)**
 
-`tests/render/test_section_occlusion.cpp` with `#define private public` + two chunks side by side:
+`section_fully_occluded` is true only when:
+- center `is_empty` **or**
+- center `is_opaque_full` **and** all 6 neighbors exist **and** each `face_solid(neighbor, opposite(face))`.
+
+Neighbors do **not** need `is_opaque_full` — only the opposite face layer.
+
+`tests/render/test_section_occlusion.cpp` with `#define private public`:
 
 ```cpp
-// Chunk (0,0,0) section 0 full stone; chunk (1,0,0) section 0 full stone
-// => section_fully_occluded on interior-facing section if both solid and neighbors loaded
+static void fill_section_stone(engine::Section& section) {
+    const engine::BlockState stone = engine::make_block_state(engine::BLOCK_STONE, 0);
+    for (int y = 0; y < engine::SECTION_DIM; ++y)
+        for (int z = 0; z < engine::SECTION_DIM; ++z)
+            for (int x = 0; x < engine::SECTION_DIM; ++x)
+                REQUIRE(section.write_block(x, y, z, stone));
+    section.sync_occupancy_from_blocks();
+}
+
+TEST_CASE("section_fully_occluded false when center not opaque full") {
+    engine::ChunkStore store;
+    store.init(4);
+    engine::Chunk* chunk = store.allocate({0, 0, 0});
+    REQUIRE(chunk != nullptr);
+    // Floor layer only — is_opaque_full false, but NY face solid
+    const engine::BlockState stone = engine::make_block_state(engine::BLOCK_STONE, 0);
+    for (int z = 0; z < engine::SECTION_DIM; ++z)
+        for (int x = 0; x < engine::SECTION_DIM; ++x)
+            REQUIRE(chunk->section_at({0, 0, 0}).write_block(x, 0, z, stone));
+    chunk->section_at({0, 0, 0}).sync_occupancy_from_blocks();
+    REQUIRE(engine::face_solid(chunk->section_at({0, 0, 0}).render_meta, engine::Face::NY));
+
+    engine::StreamingTerrainSystem streaming;
+    // init minimal: store_ pointer only needed — set store_ = &store in test via init()
+    // ...
+    REQUIRE_FALSE(streaming.section_fully_occluded({0, 0, 0}, 0));
+}
+
+TEST_CASE("section_fully_occluded true when buried in stone shell") {
+    engine::ChunkStore store;
+    store.init(8);
+    engine::Chunk* interior = store.allocate({0, 0, 0});
+    engine::Chunk* shell_px  = store.allocate({1, 0, 0});
+    REQUIRE(interior != nullptr);
+    REQUIRE(shell_px != nullptr);
+    fill_section_stone(interior->section_at({0, 0, 0}));
+    fill_section_stone(shell_px->section_at({0, 0, 0}));
+    // Also allocate -X,-Y,-Z,-Z chunk neighbors with full stone sections (test setup helper)
+    // refresh borders on interior section 0
+    engine::refresh_section_border_cache(store, {0, 0, 0}, {0, 0, 0});
+    // After all 6 face neighbors loaded + full stone opposite faces:
+    REQUIRE(streaming.section_fully_occluded({0, 0, 0}, 0));
+}
+
+TEST_CASE("section_fully_occluded false when neighbor opposite face has air") {
+    // interior chunk full stone; shell_px chunk has solid NX layer only at x=0, rest air
+    // opposite face from interior PX view = neighbor NX — still solid
+    // shell_py chunk: air section → interior PY opposite NY not solid → false
+}
 ```
 
-Also test: one neighbor air border cell in `BorderCell` after `refresh_section_border_cache` ⇒ returns false.
+Implement the shell setup with 6 neighbor chunks OR use border `BorderCell` + in-chunk neighbors where possible; prefer real `neighbor_section` resolution over border-only hacks.
 
 - [ ] **Step 4: Run tests**
 
@@ -369,9 +427,28 @@ git commit -m "feat(render): skip mesh jobs for empty and fully occluded section
 ## Task 4: Border invalidation + buried-neighbor remesh
 
 **Files:**
+- Modify: `engine/world/BlockLight.hpp` (export existing helper)
 - Modify: `engine/gameplay/BlockInteraction.cpp`
+- Modify: `engine/world/ChunkStore.cpp`
 
-- [ ] **Step 1: Helper — block on section face boundary**
+- [ ] **Step 1: Export `neighbor_chunk_and_section`**
+
+Already implemented in `BlockLight.cpp` (handles **section** and **chunk** boundaries). Add to `BlockLight.hpp`:
+
+```cpp
+void neighbor_chunk_and_section(
+    ChunkCoord chunk,
+    glm::ivec3 section_coord,
+    Face face,
+    ChunkCoord& out_chunk,
+    glm::ivec3& out_section);
+```
+
+Do **not** add `adjacent_chunk_for_face` — it only shifts chunk coords and breaks mutations on `x=15`/`x=0` section faces inside the same chunk.
+
+- [ ] **Step 2: Helper — block on section face boundary**
+
+In `BlockInteraction.cpp` anonymous namespace:
 
 ```cpp
 [[nodiscard]] bool block_on_section_face(const BlockPos& pos, Face& out_face) {
@@ -384,51 +461,48 @@ git commit -m "feat(render): skip mesh jobs for empty and fully occluded section
     if (blk.z == SECTION_DIM - 1) { out_face = Face::PZ; return true; }
     return false;
 }
-
-[[nodiscard]] ChunkCoord adjacent_chunk_for_face(ChunkCoord chunk, Face face) {
-    switch (face) {
-    case Face::PX: return chunk + ChunkCoord{1, 0, 0};
-    case Face::NX: return chunk + ChunkCoord{-1, 0, 0};
-    case Face::PY: return chunk + ChunkCoord{0, 1, 0};
-    case Face::NY: return chunk + ChunkCoord{0, -1, 0};
-    case Face::PZ: return chunk + ChunkCoord{0, 0, 1};
-    case Face::NZ: return chunk + ChunkCoord{0, 0, -1};
-    }
-    return chunk;
-}
 ```
 
-- [ ] **Step 2: After successful `write_block` in break/place path**
+- [ ] **Step 3: After successful break/place `write_block`**
 
-When `was_solid != now_solid` (or always on successful mutation — spec: block break/place):
+When solid occupancy changed (`was_solid != now_solid`):
 
 ```cpp
 Face boundary_face{};
 if (block_on_section_face(mutation.pos, boundary_face)) {
-    const ChunkCoord neighbor_chunk = adjacent_chunk_for_face(mutation.pos.chunk, boundary_face);
+    ChunkCoord neighbor_chunk{};
+    glm::ivec3 neighbor_section{};
+    neighbor_chunk_and_section(
+        mutation.pos.chunk,
+        mutation.pos.section_coord(),
+        boundary_face,
+        neighbor_chunk,
+        neighbor_section);
     mark_chunk_dirty(world, store, neighbor_chunk);
 }
 ```
 
-Also ensure mutating section calls `section.recompute_render_meta()` — happens via extending `ChunkStore::write_block`:
+`mark_chunk_dirty` on the mutating chunk already happens elsewhere; this adds the **across-face** chunk/section neighbor.
+
+- [ ] **Step 4: `recompute_render_meta` in `ChunkStore::write_block`**
+
+After occupancy update:
 
 ```cpp
 section.recompute_render_meta();
 ```
 
-after occupancy update in `ChunkStore::write_block` (in addition to sync path).
-
-- [ ] **Step 3: Integration test**
+- [ ] **Step 5: Integration test**
 
 Extend `tests/render/test_section_occlusion.cpp` or `tests/gameplay/test_block_events.cpp`:
 
 Break border block on chunk boundary ⇒ neighbor chunk gets remesh scheduled (`needs_remesh` or pending job on neighbor section).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
-git add engine/gameplay/BlockInteraction.cpp engine/world/ChunkStore.cpp tests/
-git commit -m "fix(gameplay): dirty neighbor chunks on border block occlusion changes"
+git add engine/world/BlockLight.hpp engine/gameplay/BlockInteraction.cpp engine/world/ChunkStore.cpp tests/
+git commit -m "fix(gameplay): dirty neighbor chunk across section face on solid change"
 ```
 
 ---

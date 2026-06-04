@@ -47,7 +47,7 @@ Reihenfolge der Prüfungen:
 3. **Sonst** — voller Pfad:
    - `is_empty`: true nur, wenn jede Zelle weder opak noch Wasser ist (= nichts Renderbares).
    - `is_opaque_full`: true nur, wenn jede Zelle opak (`is_solid`/`opaque` laut `BlockRegistry`).
-   - `face_solid_mask`: für jede der 6 Flächen die zugehörige 16×16-Randschicht scannen; Bit setzen, wenn alle opak.
+   - **`face_solid_mask` immer wenn nicht leer** (unabhängig von `is_opaque_full`): für jede der 6 Flächen die 16×16-Randschicht scannen; Bit setzen, wenn alle opak. Wird von `section_fully_occluded` auf Nachbarn gelesen — Nachbar-Sections können hohl sein, solange die angrenzende Face-Schicht solid ist.
 
 **Opak vs. Wasser:** Wasser zählt als renderbar (verhindert fälschliches `is_empty` bei Wasser-only Sections), aber **nicht** als opak (kein `face_solid`) — sonst würden Wasseroberflächen weggecullt.
 
