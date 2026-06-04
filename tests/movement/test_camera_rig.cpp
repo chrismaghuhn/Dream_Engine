@@ -13,11 +13,25 @@ TEST_CASE("pitch is clamped to its range") {
     CameraRig cam;
     camera::configure(cam, 5.f, 1.7f);
 
-    camera::update(cam, glm::vec2(0.f, 10000.f), 0.01f, 0.f);
+    camera::update(cam, glm::vec2(0.f, -10000.f), 0.01f, 0.f);
     REQUIRE_THAT(cam.pitch, WithinAbs(glm::radians(camera::kMinPitchDeg), 1e-4));
 
-    camera::update(cam, glm::vec2(0.f, -10000.f), 0.01f, 0.f);
+    camera::update(cam, glm::vec2(0.f, 10000.f), 0.01f, 0.f);
     REQUIRE_THAT(cam.pitch, WithinAbs(glm::radians(camera::kMaxPitchDeg), 1e-4));
+}
+
+TEST_CASE("mouse up raises the orbit camera eye") {
+    CameraRig cam;
+    camera::configure(cam, 5.f, 1.7f);
+    camera::set_pitch_degrees(cam, -15.f);
+
+    const glm::vec3 player(0.f, 0.f, 0.f);
+    const float before_y = camera::eye_position(cam, player).y;
+
+    camera::update(cam, glm::vec2(0.f, -10.f), 0.01f, 0.f);
+
+    const float after_y = camera::eye_position(cam, player).y;
+    REQUIRE(after_y > before_y);
 }
 
 TEST_CASE("distance clamps on scroll") {

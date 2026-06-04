@@ -22,8 +22,8 @@ void set_pitch_degrees(CameraRig& rig, float pitch_deg) {
 
 void update(CameraRig& rig, const glm::vec2& mouse_delta, float sensitivity, float scroll) {
     rig.yaw += mouse_delta.x * sensitivity;
-    // Moving the mouse up (negative delta.y in screen space) raises the pitch.
-    rig.pitch -= mouse_delta.y * sensitivity;
+    // Orbit camera: moving the mouse up (negative delta.y) raises the camera eye.
+    rig.pitch += mouse_delta.y * sensitivity;
 
     const float min_pitch = glm::radians(kMinPitchDeg);
     const float max_pitch = glm::radians(kMaxPitchDeg);
