@@ -106,6 +106,39 @@ TEST_CASE("no hit after window", "[hit_window]") {
         box_col()));
 }
 
+TEST_CASE("HitDetection_UsesTrimmedNormTime_ForHitWindow", "[hit_window]") {
+    // Clip 1.0s, trimmed region = [0.5s, 1.0s]. hit_window = [0.3, 0.5] of the
+    // TRIMMED region. Target placed at range ahead so the overlap test passes.
+    AttackDef def;
+    def.id             = "trim_hit";
+    def.clip           = "Trim";
+    def.hit_start_norm = 0.30f;
+    def.hit_end_norm   = 0.50f;
+    def.range          = 1.25f;
+    def.radius         = 0.35f;
+    def.clip_start_norm = 0.5f;
+    def.clip_end_norm   = 1.0f;
+
+    auto attacker = make_transform({0.f, 1.f, 0.f}, 0.f);
+    auto target   = make_transform({0.f, 1.f, 1.25f});
+    auto col      = box_col();
+
+    // t = 0.70s: raw norm = 0.70 (OUTSIDE [0.3,0.5] -> old code misses),
+    // trimmed norm = (0.70-0.5)/0.5 = 0.40 (INSIDE -> must hit).
+    {
+        CombatController combat = attacking(0.f, 0.f);
+        AnimationState anim; anim.active_clip = "Trim"; anim.time_seconds = 0.70f;
+        REQUIRE(try_hit_in_window(combat, anim, def, 1.0f, attacker, target, col));
+    }
+    // t = 0.40s: raw norm = 0.40 (INSIDE -> old code would hit),
+    // trimmed norm = clamp((0.40-0.5)/0.5) = 0.0 (OUTSIDE -> must NOT hit).
+    {
+        CombatController combat = attacking(0.f, 0.f);
+        AnimationState anim; anim.active_clip = "Trim"; anim.time_seconds = 0.40f;
+        REQUIRE_FALSE(try_hit_in_window(combat, anim, def, 1.0f, attacker, target, col));
+    }
+}
+
 TEST_CASE("no hit when not Attacking", "[hit_window]") {
     const AttackDef def = make_def();
     CombatController combat;

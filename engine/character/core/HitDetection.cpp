@@ -62,9 +62,7 @@ bool try_hit_in_window(CombatController& combat,
         return false;
     }
 
-    const float normalized = clip_duration_seconds > 1e-5f
-        ? std::clamp(anim.time_seconds / clip_duration_seconds, 0.f, 1.f)
-        : 1.f;
+    const float normalized = attack_norm_time(anim.time_seconds, def, clip_duration_seconds);
 
     if (normalized < def.hit_start_norm || normalized > def.hit_end_norm) {
         return false;
