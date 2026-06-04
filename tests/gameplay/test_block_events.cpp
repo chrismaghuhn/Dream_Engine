@@ -118,6 +118,57 @@ TEST_CASE("break_block_at adds ChunkDirty to chunk entity") {
     REQUIRE(chunk_entity.has<engine::ChunkDirty>());
 }
 
+TEST_CASE("break on chunk face dirties neighbor chunk") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(32);
+
+    const engine::WorldConfig world_config{};
+    const engine::ChunkCoord center{0, 0, 0};
+    const engine::ChunkCoord neighbor{-1, 0, 0};
+    flecs::entity center_entity =
+        engine::load_chunk(world, store, center, world_config);
+    flecs::entity neighbor_entity =
+        engine::load_chunk(world, store, neighbor, world_config);
+    REQUIRE(center_entity.is_alive());
+    REQUIRE(neighbor_entity.is_alive());
+
+    const engine::BlockPos face_block = engine::BlockPos::from_world_blocks(0, 8, 8);
+    write_solid_block(store, face_block);
+
+    center_entity.remove<engine::ChunkDirty>();
+    neighbor_entity.remove<engine::ChunkDirty>();
+
+    REQUIRE(engine::break_block_at(world, store, face_block, 1));
+    REQUIRE(center_entity.has<engine::ChunkDirty>());
+    REQUIRE(neighbor_entity.has<engine::ChunkDirty>());
+}
+
+TEST_CASE("break on intra-chunk section face dirties only mutating chunk") {
+    flecs::world world;
+    world.import<engine::WorldModule>();
+
+    engine::ChunkStore store;
+    store.init(16);
+
+    const engine::WorldConfig world_config{};
+    const engine::ChunkCoord center{0, 0, 0};
+    flecs::entity center_entity =
+        engine::load_chunk(world, store, center, world_config);
+    REQUIRE(center_entity.is_alive());
+    REQUIRE(store.entity_for(engine::ChunkCoord{-1, 0, 0}) == 0);
+
+    const engine::BlockPos section_face = engine::BlockPos::from_world_blocks(8, 16, 8);
+    write_solid_block(store, section_face);
+
+    center_entity.remove<engine::ChunkDirty>();
+
+    REQUIRE(engine::break_block_at(world, store, section_face, 1));
+    REQUIRE(center_entity.has<engine::ChunkDirty>());
+}
+
 TEST_CASE("break_block_at creates missing chunk entity before marking dirty") {
     flecs::world world;
     world.import<engine::WorldModule>();

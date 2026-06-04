@@ -42,6 +42,13 @@ private:
     glm::ivec3 section_coord,
     Face face);
 
+void neighbor_chunk_and_section(
+    ChunkCoord chunk,
+    glm::ivec3 section_coord,
+    Face face,
+    ChunkCoord& out_chunk,
+    glm::ivec3& out_section);
+
 void refresh_section_border_cache(ChunkStore& store, ChunkCoord chunk, glm::ivec3 section_coord);
 
 void flood_section_block_light(ChunkStore& store, BlockLightUpdateQueue& queue, ChunkCoord chunk,

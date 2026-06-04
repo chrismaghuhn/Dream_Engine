@@ -14,6 +14,7 @@ add_executable(engine_tests
     world/test_chunk_lifecycle.cpp
     world/test_streaming.cpp
     world/test_greedy_mesher.cpp
+    world/test_section_render_meta.cpp
     world/test_block_light.cpp
     world/test_chunk_unload_gpu.cpp
     procgen/test_heightmap_worldgen.cpp
@@ -34,6 +35,7 @@ add_executable(engine_tests
     render/test_staging_ring.cpp
     render/test_gpu_mesh_pool.cpp
     render/test_streaming_terrain_events.cpp
+    render/test_section_occlusion.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine_core engine_audio Catch2::Catch2WithMain)
 target_compile_definitions(engine_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

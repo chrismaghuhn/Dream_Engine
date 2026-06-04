@@ -169,6 +169,7 @@ bool ChunkStore::write_block(BlockPos pos, BlockState state,
     if (was_solid != now_solid) {
         section.occupancy.set(blk.x, blk.y, blk.z, now_solid);
     }
+    section.recompute_render_meta();
 
     BlockLightUpdateQueue light_queue{};
     const std::vector<ChunkCoord> dirty =

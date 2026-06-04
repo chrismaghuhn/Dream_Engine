@@ -88,119 +88,6 @@ struct SectionKeyEq {
 
 }
 
-
-
-void neighbor_chunk_and_section(
-    ChunkCoord chunk, glm::ivec3 section_coord, Face face, ChunkCoord& out_chunk,
-    glm::ivec3& out_section) {
-
-    out_chunk   = chunk;
-
-    out_section = section_coord;
-
-
-
-    switch (face) {
-
-    case Face::PX:
-
-        if (section_coord.x >= CHUNK_SECTIONS_PER_AXIS - 1) {
-
-            out_chunk.x += 1;
-
-            out_section.x = 0;
-
-        } else {
-
-            out_section.x += 1;
-
-        }
-
-        break;
-
-    case Face::NX:
-
-        if (section_coord.x <= 0) {
-
-            out_chunk.x -= 1;
-
-            out_section.x = CHUNK_SECTIONS_PER_AXIS - 1;
-
-        } else {
-
-            out_section.x -= 1;
-
-        }
-
-        break;
-
-    case Face::PY:
-
-        if (section_coord.y >= CHUNK_SECTIONS_PER_AXIS - 1) {
-
-            out_chunk.y += 1;
-
-            out_section.y = 0;
-
-        } else {
-
-            out_section.y += 1;
-
-        }
-
-        break;
-
-    case Face::NY:
-
-        if (section_coord.y <= 0) {
-
-            out_chunk.y -= 1;
-
-            out_section.y = CHUNK_SECTIONS_PER_AXIS - 1;
-
-        } else {
-
-            out_section.y -= 1;
-
-        }
-
-        break;
-
-    case Face::PZ:
-
-        if (section_coord.z >= CHUNK_SECTIONS_PER_AXIS - 1) {
-
-            out_chunk.z += 1;
-
-            out_section.z = 0;
-
-        } else {
-
-            out_section.z += 1;
-
-        }
-
-        break;
-
-    case Face::NZ:
-
-        if (section_coord.z <= 0) {
-
-            out_chunk.z -= 1;
-
-            out_section.z = CHUNK_SECTIONS_PER_AXIS - 1;
-
-        } else {
-
-            out_section.z -= 1;
-
-        }
-
-        break;
-
-    }
-}
-
 [[nodiscard]] bool in_section(int x, int y, int z) {
 
     return x >= 0 && x < SECTION_DIM && y >= 0 && y < SECTION_DIM && z >= 0 && z < SECTION_DIM;
@@ -813,7 +700,62 @@ void try_relax(
 
 } // namespace
 
+void neighbor_chunk_and_section(ChunkCoord chunk, glm::ivec3 section_coord, Face face,
+                                ChunkCoord& out_chunk, glm::ivec3& out_section) {
+    out_chunk   = chunk;
+    out_section = section_coord;
 
+    switch (face) {
+    case Face::PX:
+        if (section_coord.x >= CHUNK_SECTIONS_PER_AXIS - 1) {
+            out_chunk.x += 1;
+            out_section.x = 0;
+        } else {
+            out_section.x += 1;
+        }
+        break;
+    case Face::NX:
+        if (section_coord.x <= 0) {
+            out_chunk.x -= 1;
+            out_section.x = CHUNK_SECTIONS_PER_AXIS - 1;
+        } else {
+            out_section.x -= 1;
+        }
+        break;
+    case Face::PY:
+        if (section_coord.y >= CHUNK_SECTIONS_PER_AXIS - 1) {
+            out_chunk.y += 1;
+            out_section.y = 0;
+        } else {
+            out_section.y += 1;
+        }
+        break;
+    case Face::NY:
+        if (section_coord.y <= 0) {
+            out_chunk.y -= 1;
+            out_section.y = CHUNK_SECTIONS_PER_AXIS - 1;
+        } else {
+            out_section.y -= 1;
+        }
+        break;
+    case Face::PZ:
+        if (section_coord.z >= CHUNK_SECTIONS_PER_AXIS - 1) {
+            out_chunk.z += 1;
+            out_section.z = 0;
+        } else {
+            out_section.z += 1;
+        }
+        break;
+    case Face::NZ:
+        if (section_coord.z <= 0) {
+            out_chunk.z -= 1;
+            out_section.z = CHUNK_SECTIONS_PER_AXIS - 1;
+        } else {
+            out_section.z -= 1;
+        }
+        break;
+    }
+}
 
 void BlockLightUpdateQueue::enqueue(ChunkCoord chunk, glm::ivec3 section) {
 

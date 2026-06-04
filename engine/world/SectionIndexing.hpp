@@ -32,6 +32,20 @@ constexpr uint32_t POS_MASK = (1u << POS_BITS) - 1;
 
 enum class Face : uint32_t { PX = 0, NX = 1, PY = 2, NY = 3, PZ = 4, NZ = 5 };
 
+struct SectionRenderMeta {
+    bool    is_empty        = true;
+    bool    is_opaque_full  = false;
+    uint8_t face_solid_mask = 0;
+};
+
+inline bool face_solid(const SectionRenderMeta& m, Face f) {
+    return (m.face_solid_mask >> static_cast<uint32_t>(f)) & 1u;
+}
+
+inline Face opposite_face(Face f) {
+    return static_cast<Face>(static_cast<uint32_t>(f) ^ 1u);
+}
+
 inline uint32_t pack_vertex(uint32_t x, uint32_t y, uint32_t z, Face f) {
     return (x & POS_MASK)
          | ((y & POS_MASK) << 5)

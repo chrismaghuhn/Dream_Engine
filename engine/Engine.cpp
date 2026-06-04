@@ -553,6 +553,12 @@ void Engine::run() {
                 .loaded_chunks = chunk_store_.loaded_count(),
                 .draw_sections = draw_sections,
                 .mesh_ready_sections = mesh_ready_sections,
+                .empty_skip_sections = config_.thin_terrain_preview()
+                    ? 0
+                    : static_cast<std::uint32_t>(streaming_terrain_.count_empty_skip_sections()),
+                .occluded_skip_sections = config_.thin_terrain_preview()
+                    ? 0
+                    : static_cast<std::uint32_t>(streaming_terrain_.count_occluded_skip_sections()),
                 .gpu_ready_sections = gpu_ready_sections,
                 .pending_mesh_jobs = pending_mesh_jobs,
                 .gpu_mesh_budget_mib = gpu_mesh_budget_mib,

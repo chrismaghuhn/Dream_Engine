@@ -1,12 +1,15 @@
 #include "engine/gameplay/BlockInteraction.hpp"
 
 #include "engine/gameplay/BlockRegistry.hpp"
+#include "engine/world/BlockLight.hpp"
 #include "engine/world/Chunk.hpp"
+#include "engine/world/SectionIndexing.hpp"
 #include "engine/world/WorldEvents.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -19,6 +22,48 @@ constexpr float kRaycastEpsilon = 1e-4f;
 [[nodiscard]] bool is_raycast_target(const ChunkStore& store, const BlockPos& pos) {
     const BlockState state = store.read_block(pos);
     return is_solid(block_id(state));
+}
+
+void mark_chunk_dirty(flecs::world& world, ChunkStore& store, ChunkCoord coord);
+
+void section_faces_at_block(const BlockPos& pos, std::array<Face, 3>& faces, int& face_count) {
+    const glm::ivec3 blk = pos.block_in_section();
+    face_count          = 0;
+    if (blk.x == 0) {
+        faces[static_cast<size_t>(face_count++)] = Face::NX;
+    }
+    if (blk.x == SECTION_DIM - 1) {
+        faces[static_cast<size_t>(face_count++)] = Face::PX;
+    }
+    if (blk.y == 0) {
+        faces[static_cast<size_t>(face_count++)] = Face::NY;
+    }
+    if (blk.y == SECTION_DIM - 1) {
+        faces[static_cast<size_t>(face_count++)] = Face::PY;
+    }
+    if (blk.z == 0) {
+        faces[static_cast<size_t>(face_count++)] = Face::NZ;
+    }
+    if (blk.z == SECTION_DIM - 1) {
+        faces[static_cast<size_t>(face_count++)] = Face::PZ;
+    }
+}
+
+void mark_cross_chunk_occlusion_neighbors_dirty(flecs::world& world,
+                                                ChunkStore& store,
+                                                const BlockPos& pos) {
+    std::array<Face, 3> faces{};
+    int face_count = 0;
+    section_faces_at_block(pos, faces, face_count);
+    for (int i = 0; i < face_count; ++i) {
+        ChunkCoord neighbor_chunk{};
+        glm::ivec3 neighbor_section{};
+        neighbor_chunk_and_section(pos.chunk, pos.section_coord(), faces[i], neighbor_chunk,
+                                   neighbor_section);
+        if (neighbor_chunk != pos.chunk) {
+            mark_chunk_dirty(world, store, neighbor_chunk);
+        }
+    }
 }
 
 void mark_chunk_dirty(flecs::world& world, ChunkStore& store, ChunkCoord coord) {
@@ -189,6 +234,14 @@ BlockMutationResult apply_block_mutation(
 
     if (Chunk* chunk = store.try_get(mutation.pos.chunk)) {
         chunk->flags |= CHUNK_MODIFIED_BY_PLAYER;
+    }
+
+    mark_chunk_dirty(world, store, mutation.pos.chunk);
+
+    const bool was_solid = is_solid(block_id(mutation.old_state));
+    const bool now_solid = is_solid(block_id(mutation.new_state));
+    if (was_solid != now_solid) {
+        mark_cross_chunk_occlusion_neighbors_dirty(world, store, mutation.pos);
     }
 
     for (const ChunkCoord& coord : light_dirty_chunks) {

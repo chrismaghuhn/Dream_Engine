@@ -54,6 +54,7 @@ struct Section {
     std::array<uint8_t, kMaxPaletteEntries> block_light{};
     SectionOccupancy occupancy{};
     SectionBorderCache border{};
+    SectionRenderMeta render_meta{};
 
     Section() {
         palette.push_back(make_block_state(BLOCK_AIR, 0));
@@ -87,9 +88,122 @@ struct Section {
                 }
             }
         }
+        recompute_render_meta();
+    }
+
+    void recompute_render_meta() {
+        render_meta = {};
+
+        if (palette.size() == 1 && block_id(palette[0]) == BLOCK_AIR) {
+            render_meta.is_empty = true;
+            return;
+        }
+        if (palette.size() == 1 && is_opaque_solid(block_id(palette[0]))) {
+            render_meta.is_empty       = false;
+            render_meta.is_opaque_full = true;
+            render_meta.face_solid_mask = 0x3Fu;
+            return;
+        }
+
+        bool any_renderable = false;
+        bool all_opaque     = true;
+        for (int y = 0; y < SECTION_DIM; ++y) {
+            for (int z = 0; z < SECTION_DIM; ++z) {
+                for (int x = 0; x < SECTION_DIM; ++x) {
+                    const BlockId id = block_id(read_block(x, y, z));
+                    if (is_renderable(id)) {
+                        any_renderable = true;
+                    }
+                    if (!is_opaque_solid(id)) {
+                        all_opaque = false;
+                    }
+                }
+            }
+        }
+
+        render_meta.is_empty       = !any_renderable;
+        render_meta.is_opaque_full = any_renderable && all_opaque;
+
+        if (render_meta.is_empty) {
+            return;
+        }
+
+        for (int f = 0; f < 6; ++f) {
+            if (face_layer_all_opaque_solid(static_cast<Face>(f))) {
+                render_meta.face_solid_mask |= static_cast<uint8_t>(1u << f);
+            }
+        }
     }
 
 private:
+    [[nodiscard]] static bool is_opaque_solid(BlockId id) {
+        return is_solid(id) && !is_water(id);
+    }
+
+    [[nodiscard]] static bool is_renderable(BlockId id) {
+        return is_solid(id) || is_water(id);
+    }
+
+    [[nodiscard]] bool face_layer_all_opaque_solid(Face face) const {
+        switch (face) {
+        case Face::PX:
+            for (int y = 0; y < SECTION_DIM; ++y) {
+                for (int z = 0; z < SECTION_DIM; ++z) {
+                    if (!is_opaque_solid(block_id(read_block(SECTION_DIM - 1, y, z)))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        case Face::NX:
+            for (int y = 0; y < SECTION_DIM; ++y) {
+                for (int z = 0; z < SECTION_DIM; ++z) {
+                    if (!is_opaque_solid(block_id(read_block(0, y, z)))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        case Face::PY:
+            for (int x = 0; x < SECTION_DIM; ++x) {
+                for (int z = 0; z < SECTION_DIM; ++z) {
+                    if (!is_opaque_solid(block_id(read_block(x, SECTION_DIM - 1, z)))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        case Face::NY:
+            for (int x = 0; x < SECTION_DIM; ++x) {
+                for (int z = 0; z < SECTION_DIM; ++z) {
+                    if (!is_opaque_solid(block_id(read_block(x, 0, z)))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        case Face::PZ:
+            for (int x = 0; x < SECTION_DIM; ++x) {
+                for (int y = 0; y < SECTION_DIM; ++y) {
+                    if (!is_opaque_solid(block_id(read_block(x, y, SECTION_DIM - 1)))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        case Face::NZ:
+            for (int x = 0; x < SECTION_DIM; ++x) {
+                for (int y = 0; y < SECTION_DIM; ++y) {
+                    if (!is_opaque_solid(block_id(read_block(x, y, 0)))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     [[nodiscard]] uint16_t palette_index_for(BlockState state) {
         for (uint16_t i = 0; i < palette.size(); ++i) {
             if (palette[i].raw == state.raw) {

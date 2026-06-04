@@ -3,6 +3,7 @@
 #include "engine/render/FrustumCull.hpp"
 #include "engine/render/GpuDeferredFreeQueue.hpp"
 #include "engine/world/BlockLight.hpp"
+#include "engine/world/Chunk.hpp"
 #include "engine/world/ChunkLifecycle.hpp"
 #include "engine/world/GreedyMesher.hpp"
 #include "engine/world/SectionIndexing.hpp"
@@ -213,6 +214,8 @@ void StreamingTerrainSystem::invalidate_chunk_mesh(const ChunkCoord coord) {
         section_state.mesh_ready = false;
         section_state.mesh_job_pending = false;
         section_state.needs_remesh = false;
+        section_state.empty_skip = false;
+        section_state.occluded_skip = false;
         section_state.opaque_gpu_allocated = false;
         section_state.water_gpu_allocated = false;
         section_state.opaque_upload_queued = false;
@@ -251,6 +254,8 @@ void StreamingTerrainSystem::soft_invalidate_chunk_mesh(const ChunkCoord coord) 
         ++section_state.mesh_schedule_serial;
         section_state.mesh_job_pending = false;
         section_state.needs_remesh = true;
+        section_state.empty_skip = false;
+        section_state.occluded_skip = false;
         // Only supersede an existing stale slot when the active slot has already
         // been confirmed on the GPU (opaque_draw_index_count > 0).  If the active
         // slot's upload is still in flight, keeping the old confirmed stale is
@@ -336,6 +341,57 @@ int StreamingTerrainSystem::count_pending_mesh_jobs() const {
     return pending;
 }
 
+bool StreamingTerrainSystem::section_fully_occluded(const ChunkCoord coord,
+                                                    const std::uint8_t section_index) const {
+    if (store_ == nullptr) {
+        return false;
+    }
+
+    const Chunk* chunk = store_->try_get(coord);
+    if (chunk == nullptr || store_->is_pending_unload(coord)) {
+        return false;
+    }
+
+    const Section& section = chunk->sections[section_index];
+    const SectionRenderMeta& meta = section.render_meta;
+    if (meta.is_empty) {
+        return true;
+    }
+    if (!meta.is_opaque_full) {
+        return false;
+    }
+
+    const glm::ivec3 section_coord = section_coord_from_index(section_index);
+    for (int fi = 0; fi < 6; ++fi) {
+        const Face face = static_cast<Face>(fi);
+        Section* neighbor = neighbor_section(*store_, coord, section_coord, face);
+        if (neighbor == nullptr) {
+            return false;
+        }
+        if (!face_solid(neighbor->render_meta, opposite_face(face))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void StreamingTerrainSystem::mark_section_mesh_skipped(SectionMeshState& section_state,
+                                                     const SectionMeshSkipKind kind) {
+    section_state.mesh_ready              = true;
+    section_state.mesh_job_pending        = false;
+    section_state.needs_remesh            = false;
+    section_state.empty_skip              = (kind == SectionMeshSkipKind::Empty);
+    section_state.occluded_skip           = (kind == SectionMeshSkipKind::FullyOccluded);
+    section_state.opaque_vertices.clear();
+    section_state.opaque_indices.clear();
+    section_state.water_vertices.clear();
+    section_state.water_indices.clear();
+    section_state.opaque_index_count      = 0;
+    section_state.water_index_count       = 0;
+    section_state.opaque_draw_index_count = 0;
+    section_state.water_draw_index_count  = 0;
+}
+
 void StreamingTerrainSystem::schedule_section_mesh(const ChunkCoord coord, const std::uint8_t section_index) {
     if (store_ == nullptr || jobs_ == nullptr) {
         return;
@@ -362,6 +418,18 @@ void StreamingTerrainSystem::schedule_section_mesh(const ChunkCoord coord, const
         return;
     }
 
+    const Section& live_section = chunk->sections[section_index];
+    if (live_section.render_meta.is_empty) {
+        mark_section_mesh_skipped(section_state, SectionMeshSkipKind::Empty);
+        return;
+    }
+    if (section_fully_occluded(coord, section_index)) {
+        mark_section_mesh_skipped(section_state, SectionMeshSkipKind::FullyOccluded);
+        return;
+    }
+
+    section_state.empty_skip    = false;
+    section_state.occluded_skip = false;
     section_state.section_index = section_index;
     section_state.mesh_job_pending = true;
     section_state.needs_remesh = false;
@@ -424,6 +492,8 @@ void StreamingTerrainSystem::drain_mesh_completions() {
         section_state.mesh_ready = true;
         section_state.mesh_job_pending = false;
         section_state.needs_remesh = false;
+        section_state.empty_skip = false;
+        section_state.occluded_skip = false;
         SPDLOG_DEBUG(
             "StreamingTerrainSystem: mesh completion coord=({},{},{}) section={} opaque_indices={} water_indices={} serial={}",
             completion.coord.x,
@@ -780,6 +850,38 @@ std::size_t StreamingTerrainSystem::count_mesh_ready_sections() const {
     return count;
 }
 
+std::size_t StreamingTerrainSystem::count_empty_skip_sections() const {
+    std::size_t count = 0;
+    for (const auto& [coord, chunk_state] : chunk_meshes_) {
+        if (store_ == nullptr || store_->try_get(coord) == nullptr ||
+            store_->is_pending_unload(coord)) {
+            continue;
+        }
+        for (const SectionMeshState& section_state : chunk_state.sections) {
+            if (section_state.mesh_ready && section_state.empty_skip) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
+std::size_t StreamingTerrainSystem::count_occluded_skip_sections() const {
+    std::size_t count = 0;
+    for (const auto& [coord, chunk_state] : chunk_meshes_) {
+        if (store_ == nullptr || store_->try_get(coord) == nullptr ||
+            store_->is_pending_unload(coord)) {
+            continue;
+        }
+        for (const SectionMeshState& section_state : chunk_state.sections) {
+            if (section_state.mesh_ready && section_state.occluded_skip) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
 void StreamingTerrainSystem::bootstrap_existing_chunks(ChunkStore& store, const glm::vec3& focus_world) {
     store_ = &store;
     focus_world_ = focus_world;
@@ -1017,6 +1119,9 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
 
         for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
             const SectionMeshState& section_state = chunk_state.sections[section_index];
+            if (section_state.empty_skip || section_state.occluded_skip) {
+                continue;
+            }
             const glm::ivec3 section_coord = section_coord_from_index(section_index);
             const glm::vec3 section_offset = glm::vec3(section_coord) * 16.f;
             const glm::vec3 model_translation = chunk_origin_world + section_offset - render_origin;

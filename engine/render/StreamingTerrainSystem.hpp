@@ -41,7 +41,14 @@ public:
 
     [[nodiscard]] std::size_t count_mesh_ready_sections() const;
     [[nodiscard]] std::size_t count_gpu_ready_sections() const;
+    [[nodiscard]] std::size_t count_empty_skip_sections() const;
+    [[nodiscard]] std::size_t count_occluded_skip_sections() const;
     [[nodiscard]] int count_pending_mesh_jobs() const;
+
+    // Mesh scheduling / occlusion helpers (public for headless tests; MSVC mangles
+    // private members differently than `#define private public` in test TUs).
+    void schedule_section_mesh(ChunkCoord coord, std::uint8_t section_index);
+    [[nodiscard]] bool section_fully_occluded(ChunkCoord coord, std::uint8_t section_index) const;
 
     /// Block until nearby section meshes are ready (startup / save load).
     void warmup_meshes_near_focus(JobSystem& jobs, const glm::vec3& focus_world, std::size_t min_sections);
@@ -75,6 +82,8 @@ private:
         bool opaque_gpu_uploaded = false;
         bool water_gpu_uploaded = false;
         bool mesh_job_pending = false;
+        bool empty_skip = false;
+        bool occluded_skip = false;
         // Set by soft_invalidate_chunk_mesh so that schedule_section_mesh
         // re-queues work without clearing the old GPU draw state.
         bool needs_remesh = false;
@@ -109,7 +118,8 @@ private:
     void on_chunk_loaded(ChunkCoord coord);
     void on_chunk_unloaded(ChunkCoord coord);
     void schedule_chunk_mesh(ChunkCoord coord);
-    void schedule_section_mesh(ChunkCoord coord, std::uint8_t section_index);
+    enum class SectionMeshSkipKind { Empty, FullyOccluded };
+    void mark_section_mesh_skipped(SectionMeshState& section_state, SectionMeshSkipKind kind);
     void drain_mesh_completions();
     void ensure_gpu_slots(GpuMeshPool& mesh_pool, std::uint32_t submit_snapshot_slot);
     void invalidate_chunk_mesh(ChunkCoord coord);
