@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 namespace engine {
 
@@ -46,23 +47,6 @@ void section_faces_at_block(const BlockPos& pos, std::array<Face, 3>& faces, int
     }
     if (blk.z == SECTION_DIM - 1) {
         faces[static_cast<size_t>(face_count++)] = Face::PZ;
-    }
-}
-
-void mark_cross_chunk_occlusion_neighbors_dirty(flecs::world& world,
-                                                ChunkStore& store,
-                                                const BlockPos& pos) {
-    std::array<Face, 3> faces{};
-    int face_count = 0;
-    section_faces_at_block(pos, faces, face_count);
-    for (int i = 0; i < face_count; ++i) {
-        ChunkCoord neighbor_chunk{};
-        glm::ivec3 neighbor_section{};
-        neighbor_chunk_and_section(pos.chunk, pos.section_coord(), faces[i], neighbor_chunk,
-                                   neighbor_section);
-        if (neighbor_chunk != pos.chunk) {
-            mark_chunk_dirty(world, store, neighbor_chunk);
-        }
     }
 }
 
@@ -236,15 +220,29 @@ BlockMutationResult apply_block_mutation(
         chunk->flags |= CHUNK_MODIFIED_BY_PLAYER;
     }
 
-    mark_chunk_dirty(world, store, mutation.pos.chunk);
-
     const bool was_solid = is_solid(block_id(mutation.old_state));
     const bool now_solid = is_solid(block_id(mutation.new_state));
-    if (was_solid != now_solid) {
-        mark_cross_chunk_occlusion_neighbors_dirty(world, store, mutation.pos);
-    }
 
+    std::unordered_set<ChunkCoord, ChunkCoordHash> dirty_chunks{};
+    dirty_chunks.insert(mutation.pos.chunk);
+    if (was_solid != now_solid) {
+        std::array<Face, 3> faces{};
+        int face_count = 0;
+        section_faces_at_block(mutation.pos, faces, face_count);
+        for (int i = 0; i < face_count; ++i) {
+            ChunkCoord neighbor_chunk{};
+            glm::ivec3 neighbor_section{};
+            neighbor_chunk_and_section(mutation.pos.chunk, mutation.pos.section_coord(), faces[i],
+                                       neighbor_chunk, neighbor_section);
+            if (neighbor_chunk != mutation.pos.chunk) {
+                dirty_chunks.insert(neighbor_chunk);
+            }
+        }
+    }
     for (const ChunkCoord& coord : light_dirty_chunks) {
+        dirty_chunks.insert(coord);
+    }
+    for (const ChunkCoord& coord : dirty_chunks) {
         mark_chunk_dirty(world, store, coord);
     }
 
