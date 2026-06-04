@@ -28,28 +28,26 @@ static std::string write_temp_attack(const std::string& stem, const std::string&
     return p.string();
 }
 
-TEST_CASE("parses combat attacks with hit and cancel windows", "[attack_data]") {
+TEST_CASE("parses the tuned combat roster", "[attack_data]") {
     const engine::character::AttackTable table =
         engine::character::AttackData::load(kAttackFile);
 
-    REQUIRE(table.size() == 8);
-    REQUIRE(table.count("high_kick"));
-    REQUIRE(table.count("elbow_strike"));
-    REQUIRE(table.count("counterstrike"));
+    REQUIRE(table.size() == 11);
+    REQUIRE(table.count("jab_left"));
+    REQUIRE(table.count("uppercut_right"));
+    REQUIRE(table.count("knee_strike"));
 
-    const auto& hk = table.at("high_kick");
-    REQUIRE(hk.clip == "High_Kick");
-    REQUIRE(hk.hit_start_norm == Catch::Approx(0.35f));
-    REQUIRE(hk.hit_end_norm   == Catch::Approx(0.48f));
-    REQUIRE(hk.range     == Catch::Approx(1.25f));
-    REQUIRE(hk.radius    == Catch::Approx(0.35f));
-    REQUIRE(hk.recovery_seconds == Catch::Approx(0.25f));
-    REQUIRE(hk.cancel_start_norm == Catch::Approx(0.68f));
-    REQUIRE(hk.dodge_cancel_start_norm == Catch::Approx(0.58f));
+    const auto& jab = table.at("jab_left");
+    REQUIRE(jab.clip == "Jab_Left");
+    REQUIRE(jab.clip_start_norm == Catch::Approx(0.15f));
+    REQUIRE(jab.clip_end_norm   == Catch::Approx(0.65f));
+    REQUIRE(jab.time_scale      == Catch::Approx(1.4f));
+    REQUIRE(jab.hit_start_norm  == Catch::Approx(0.35f));
+    REQUIRE(jab.hit_end_norm    == Catch::Approx(0.55f));
+    REQUIRE(jab.hitstop_frames  == 3);
 
-    const auto& es = table.at("elbow_strike");
-    REQUIRE(es.hit_start_norm == Catch::Approx(0.32f));
-    REQUIRE(es.hit_end_norm   == Catch::Approx(0.44f));
+    const auto& fin = table.at("uppercut_right");
+    REQUIRE(fin.hitstop_frames == 6);
 }
 
 TEST_CASE("AttackData parses cancel_window fields", "[attack_data]") {

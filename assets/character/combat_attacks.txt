@@ -1,84 +1,123 @@
-# combat_attacks.txt - v2 attack table (Combat Redesign)
-# Fields: clip, hit_window [start end], range, radius, recovery,
-#         cancel_window, dodge_cancel_window
-# hit_window/cancel windows are normalized clip time [0, 1].
+# combat_attacks.txt - v3 tuned roster (Combat Feel Tuning)
+# Fields: clip, clip_window [start end] (raw-clip trim, normalized),
+#         time_scale, hit_window [start end], range, radius, recovery (s),
+#         cancel_window, dodge_cancel_window, hitstop (frames).
+# hit/cancel windows are normalized within the TRIMMED region [clip_start, clip_end].
 
-attack high_kick {
-    clip High_Kick
-    hit_window 0.35 0.48
-    range 1.25
-    radius 0.35
-    recovery 0.25
-    cancel_window 0.68
-    dodge_cancel_window 0.58
+# --- Light chain: jab_left -> jab_right -> hook_left -> uppercut_right ---
+attack jab_left {
+    clip Jab_Left
+    clip_window 0.15 0.65
+    time_scale 1.4
+    hit_window 0.35 0.55
+    range 1.00  radius 0.30
+    recovery 0.16
+    cancel_window 0.55  dodge_cancel_window 0.45
+    hitstop 3
+}
+attack jab_right {
+    clip Jab_Right
+    clip_window 0.15 0.62
+    time_scale 1.4
+    hit_window 0.34 0.54
+    range 1.05  radius 0.30
+    recovery 0.16
+    cancel_window 0.54  dodge_cancel_window 0.45
+    hitstop 3
+}
+attack hook_left {
+    clip Hook_Left
+    clip_window 0.10 0.78
+    time_scale 1.3
+    hit_window 0.38 0.56
+    range 0.95  radius 0.32
+    recovery 0.18
+    cancel_window 0.56  dodge_cancel_window 0.46
+    hitstop 4
+}
+attack uppercut_right {
+    clip Uppercut_Right
+    clip_window 0.10 0.82
+    time_scale 1.2
+    hit_window 0.40 0.58
+    range 0.90  radius 0.34
+    recovery 0.22
+    cancel_window 0.58  dodge_cancel_window 0.48
+    hitstop 6
 }
 
-attack elbow_strike {
-    clip Elbow_Strike
-    hit_window 0.32 0.44
-    range 0.85
-    radius 0.30
+# --- Heavy chain: uppercut_left -> upper_hook_right -> knee_strike ---
+attack uppercut_left {
+    clip Uppercut_Left
+    clip_window 0.12 0.70
+    time_scale 1.3
+    hit_window 0.38 0.56
+    range 0.95  radius 0.34
     recovery 0.20
-    cancel_window 0.64
-    dodge_cancel_window 0.56
+    cancel_window 0.56  dodge_cancel_window 0.46
+    hitstop 4
+}
+attack upper_hook_right {
+    clip Upper_Hook_Right
+    clip_window 0.15 0.66
+    time_scale 1.35
+    hit_window 0.36 0.55
+    range 1.00  radius 0.34
+    recovery 0.20
+    cancel_window 0.55  dodge_cancel_window 0.46
+    hitstop 5
+}
+attack knee_strike {
+    clip Knee_Strike
+    clip_window 0.15 0.62
+    time_scale 1.4
+    hit_window 0.40 0.58
+    range 1.05  radius 0.38
+    recovery 0.26
+    cancel_window 0.58  dodge_cancel_window 0.48
+    hitstop 6
 }
 
-attack counterstrike {
-    clip Counterstrike
-    hit_window 0.38 0.55
-    range 1.05
-    radius 0.35
-    recovery 0.35
-    cancel_window 0.72
-    dodge_cancel_window 0.62
+# --- Kick chain: high_kick_step -> roundhouse -> spin_kick ---
+attack high_kick_step {
+    clip Kick_High_Step
+    clip_window 0.10 0.72
+    time_scale 1.25
+    hit_window 0.40 0.58
+    range 1.20  radius 0.36
+    recovery 0.18
+    cancel_window 0.58  dodge_cancel_window 0.48
+    hitstop 4
+}
+attack roundhouse {
+    clip Roundhouse
+    clip_window 0.20 0.64
+    time_scale 1.5
+    hit_window 0.38 0.60
+    range 1.30  radius 0.40
+    recovery 0.22
+    cancel_window 0.60  dodge_cancel_window 0.50
+    hitstop 5
+}
+attack spin_kick {
+    clip Spin_Kick
+    clip_window 0.12 0.74
+    time_scale 1.3
+    hit_window 0.40 0.62
+    range 1.45  radius 0.40
+    recovery 0.26
+    cancel_window 0.62  dodge_cancel_window 0.52
+    hitstop 6
 }
 
-attack spartan_kick {
-    clip Spartan_Kick
-    hit_window 0.34 0.50
-    range 1.35
-    radius 0.38
-    recovery 0.35
-    cancel_window 0.72
-    dodge_cancel_window 0.62
-}
-
-attack dodge_and_counter {
-    clip Dodge_and_Counter
-    hit_window 0.42 0.60
-    range 1.10
-    radius 0.35
-    recovery 0.30
-    cancel_window 0.76
-    dodge_cancel_window 0.66
-}
-
-attack sweeping_kick {
-    clip Sweeping_Kick
-    hit_window 0.30 0.52
-    range 1.15
-    radius 0.42
-    recovery 0.32
-    cancel_window 0.70
-    dodge_cancel_window 0.60
-}
-
-attack lunge_spin_kick {
-    clip Lunge_Spin_Kick
-    hit_window 0.36 0.62
-    range 1.50
-    radius 0.40
-    recovery 0.40
-    cancel_window 0.78
-    dodge_cancel_window 0.68
-}
-
+# --- Special: shield_push ---
 attack shield_push {
-    clip Shield_Push_Left
-    hit_window 0.28 0.46
-    range 0.95
-    radius 0.36
-    recovery 0.28
-    cancel_window 0.66
-    dodge_cancel_window 0.58
+    clip Shield_Push
+    clip_window 0.12 0.64
+    time_scale 1.4
+    hit_window 0.30 0.50
+    range 0.95  radius 0.36
+    recovery 0.20
+    cancel_window 0.50  dodge_cancel_window 0.42
+    hitstop 4
 }
