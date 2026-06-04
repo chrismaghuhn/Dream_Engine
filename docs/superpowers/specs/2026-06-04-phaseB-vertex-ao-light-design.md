@@ -1,6 +1,6 @@
 # Phase B — Vertex AO + Baked Light — Design
 
-**Status:** Ready for user review (2026-06-04, rev. 2 — corner tangents, shader interpolation, task order)
+**Status:** Approved (2026-06-04, rev. 2 — corner tangents, shader interpolation, task order)
 **Roadmap:** `2026-06-04-rendering-performance-roadmap-design.md` (Phase B)
 **Bezug:** `2026-06-03-voxel-engine-design.md` §10.5 (Vertices), §16 (Lighting), §18 (Water)
 

@@ -56,7 +56,7 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 ## 4. Detail-Specs pro Phase
 
 - Phase A: `2026-06-04-phaseA-section-occlusion-skip-design.md` (fertig)
-- Phase B: `2026-06-04-phaseB-vertex-ao-light-design.md` (ready for review)
+- Phase B: `2026-06-04-phaseB-vertex-ao-light-design.md` (approved; plan: `plans/2026-06-04-phaseB-vertex-ao-light.md`)
 - Phasen C–H: jeweils eigene Spec, sobald die vorige Phase implementiert/abgenommen ist.
 
 ## 5. Querschnitt-Entscheidungen
