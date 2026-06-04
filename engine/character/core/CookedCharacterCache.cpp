@@ -158,6 +158,9 @@ void CookedCharacterCache::write(const std::filesystem::path& cache_path,
     write_u32(out, kMagic);
     write_u32(out, kVersion);
     write_str(out, asset.source_path);
+    // node_transform (16 floats, column-major)
+    out.write(reinterpret_cast<const char*>(&asset.node_transform[0][0]),
+              sizeof(glm::mat4));
 
     // Mesh
     const SkinnedMeshData& m = asset.mesh;
@@ -185,9 +188,11 @@ void CookedCharacterCache::write(const std::filesystem::path& cache_path,
         write_u32(out, static_cast<std::uint32_t>(clip.channels.size()));
         for (const AnimChannel& ch : clip.channels) {
             write_str(out, ch.target_joint);
-            write_vec(out, ch.key_times);
+            write_vec(out, ch.translation_times);
             write_vec(out, ch.translations);
+            write_vec(out, ch.rotation_times);
             write_vec(out, ch.rotations);
+            write_vec(out, ch.scale_times);
             write_vec(out, ch.scales);
         }
     }
@@ -211,6 +216,7 @@ CharacterAsset CookedCharacterCache::read(const std::filesystem::path& cache_pat
 
     CharacterAsset asset;
     asset.source_path = read_str(in);
+    in.read(reinterpret_cast<char*>(&asset.node_transform[0][0]), sizeof(glm::mat4));
 
     SkinnedMeshData& m = asset.mesh;
     m.positions              = read_vec<glm::vec3>(in);
@@ -238,11 +244,13 @@ CharacterAsset CookedCharacterCache::read(const std::filesystem::path& cache_pat
         const auto ch_count   = read_u32(in);
         clip.channels.resize(ch_count);
         for (AnimChannel& ch : clip.channels) {
-            ch.target_joint  = read_str(in);
-            ch.key_times     = read_vec<float>(in);
-            ch.translations  = read_vec<glm::vec3>(in);
-            ch.rotations     = read_vec<glm::quat>(in);
-            ch.scales        = read_vec<glm::vec3>(in);
+            ch.target_joint       = read_str(in);
+            ch.translation_times  = read_vec<float>(in);
+            ch.translations       = read_vec<glm::vec3>(in);
+            ch.rotation_times     = read_vec<float>(in);
+            ch.rotations          = read_vec<glm::quat>(in);
+            ch.scale_times        = read_vec<float>(in);
+            ch.scales             = read_vec<glm::vec3>(in);
         }
     }
 

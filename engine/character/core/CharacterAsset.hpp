@@ -16,9 +16,14 @@ struct BoneInfo {
 
 struct AnimChannel {
     std::string target_joint;
-    std::vector<float> key_times;
+    // Each TRS component has its own sampler in glTF and therefore its own
+    // time array. Sharing a single key_times caused out-of-bounds access when
+    // different channels of the same joint have different keyframe counts.
+    std::vector<float> translation_times;
     std::vector<glm::vec3> translations;
+    std::vector<float> rotation_times;
     std::vector<glm::quat> rotations;
+    std::vector<float> scale_times;
     std::vector<glm::vec3> scales;
 };
 
@@ -46,6 +51,10 @@ struct CharacterAsset {
     std::string source_path;
     SkinnedMeshData mesh;
     std::vector<AnimClip> clips;
+    // World transform of the mesh node in the source GLB (column-major, GLM layout).
+    // Contains the root scale factor (Meshy exports in cm → 0.01 scale to convert to m).
+    // Apply this as a right-hand factor of the model matrix: model * node_transform.
+    glm::mat4 node_transform{1.f};
 };
 
 } // namespace engine::character

@@ -54,6 +54,18 @@ struct GpuVertex {
 int CharacterPass::add_character(const CharacterAsset& asset) {
     const int handle = static_cast<int>(pending_.size());
     pending_.push_back({asset});
+
+    // If the renderer is already initialized (add_character called after
+    // on_renderer_init), create GPU resources immediately for this character.
+    if (context_ != nullptr) {
+        gpu_chars_.resize(pending_.size());
+        if (!gpu_chars_.back().initialized) {
+            if (!init_character_gpu(handle)) {
+                SPDLOG_ERROR("CharacterPass: late init_character_gpu({}) failed", handle);
+            }
+        }
+    }
+
     return handle;
 }
 
@@ -133,11 +145,19 @@ void CharacterPass::on_renderer_init(const PassExtensionInitContext& ctx) {
 
 void CharacterPass::on_renderer_shutdown(VulkanContext& /*context*/) {
     if (context_ == nullptr || context_->device() == VK_NULL_HANDLE) {
+        SPDLOG_WARN("CharacterPass::on_renderer_shutdown: context null or device null, skipping");
         return;
     }
+    SPDLOG_INFO("CharacterPass::on_renderer_shutdown: destroying {} characters", gpu_chars_.size());
     vkDeviceWaitIdle(context_->device());
 
     for (int i = 0; i < static_cast<int>(gpu_chars_.size()); ++i) {
+        SPDLOG_INFO("CharacterPass: destroying gpu_char[{}] (initialized={}, "
+                    "vbuf={}, ibuf={})",
+                    i,
+                    gpu_chars_[static_cast<std::size_t>(i)].initialized,
+                    static_cast<void*>(gpu_chars_[static_cast<std::size_t>(i)].mesh.vertex_buffer),
+                    static_cast<void*>(gpu_chars_[static_cast<std::size_t>(i)].mesh.index_buffer));
         destroy_character_gpu(i);
     }
     gpu_chars_.clear();

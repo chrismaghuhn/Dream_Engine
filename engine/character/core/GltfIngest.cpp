@@ -259,27 +259,30 @@ void extract_animation(const cgltf_animation& anim,
         AnimChannel& ac = by_joint[joint_name];
         ac.target_joint = joint_name;
 
-        if (ac.key_times.empty()) {
-            ac.key_times.resize(key_count);
-            for (std::size_t k = 0; k < key_count; ++k) {
-                float t = 0.f;
-                cgltf_accessor_read_float(sampler->input, k, &t, 1);
-                ac.key_times[k] = t;
-                clip.duration_seconds = std::max(clip.duration_seconds, t);
-            }
+        // Read this channel's own time values (each glTF channel has its own
+        // sampler with potentially a different number of keyframes).
+        std::vector<float> times(key_count);
+        for (std::size_t k = 0; k < key_count; ++k) {
+            float t = 0.f;
+            cgltf_accessor_read_float(sampler->input, k, &t, 1);
+            times[k] = t;
+            clip.duration_seconds = std::max(clip.duration_seconds, t);
         }
 
         if (ch.target_path == cgltf_animation_path_type_translation) {
+            ac.translation_times = times;
             ac.translations.resize(key_count);
             for (std::size_t k = 0; k < key_count; ++k) {
                 ac.translations[k] = read_vec3(sampler->output, k);
             }
         } else if (ch.target_path == cgltf_animation_path_type_rotation) {
+            ac.rotation_times = times;
             ac.rotations.resize(key_count);
             for (std::size_t k = 0; k < key_count; ++k) {
                 ac.rotations[k] = read_quat(sampler->output, k);
             }
         } else if (ch.target_path == cgltf_animation_path_type_scale) {
+            ac.scale_times = times;
             ac.scales.resize(key_count);
             for (std::size_t k = 0; k < key_count; ++k) {
                 ac.scales[k] = read_vec3(sampler->output, k);
@@ -316,6 +319,16 @@ const cgltf_mesh* find_skinned_mesh(const cgltf_data* data) {
     return nullptr;
 }
 
+// Find the scene node that owns a given mesh.
+const cgltf_node* find_mesh_node(const cgltf_data* data, const cgltf_mesh* target_mesh) {
+    for (std::size_t i = 0; i < data->nodes_count; ++i) {
+        if (data->nodes[i].mesh == target_mesh) {
+            return &data->nodes[i];
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -329,8 +342,8 @@ CharacterAsset GltfIngest::load_base(const std::string& glb_path) {
         throw std::runtime_error("GltfIngest: no skin in " + glb_path);
     }
 
-    const cgltf_mesh* mesh_node = find_skinned_mesh(data);
-    if (!mesh_node) {
+    const cgltf_mesh* skinned_mesh = find_skinned_mesh(data);
+    if (!skinned_mesh) {
         throw std::runtime_error("GltfIngest: no skinned mesh in " + glb_path);
     }
 
@@ -340,6 +353,14 @@ CharacterAsset GltfIngest::load_base(const std::string& glb_path) {
     extract_bones(skin, asset.mesh.bones);
     extract_inverse_bind_matrices(skin, asset.mesh.inverse_bind_matrices);
 
+    // Read the mesh node's world transform (contains root scale, e.g. 0.01 for cm→m).
+    // Store it so callers can include it in the model matrix.
+    if (const cgltf_node* scene_node = find_mesh_node(data, skinned_mesh)) {
+        float world[16] = {};
+        cgltf_node_transform_world(scene_node, world);
+        std::memcpy(&asset.node_transform[0][0], world, sizeof(world));
+    }
+
     if (asset.mesh.bones.size() > static_cast<std::size_t>(SkeletonValidator::kMaxBones)) {
         throw std::runtime_error("GltfIngest: bone count " +
                                  std::to_string(asset.mesh.bones.size()) +
@@ -348,7 +369,7 @@ CharacterAsset GltfIngest::load_base(const std::string& glb_path) {
                                  " in " + glb_path);
     }
 
-    extract_primitive(mesh_node->primitives[0], skin, asset.mesh);
+    extract_primitive(skinned_mesh->primitives[0], skin, asset.mesh);
 
     SPDLOG_INFO("GltfIngest: loaded base '{}' — {} verts, {} bones",
                 glb_path,
