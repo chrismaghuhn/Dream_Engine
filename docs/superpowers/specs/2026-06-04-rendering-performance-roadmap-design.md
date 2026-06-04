@@ -19,7 +19,7 @@ Abgleich der ursprünglich vorgeschlagenen 10 Optimierungen gegen den IST-Zustan
 | 5 | Vertex Compression | **Fertig** | `TerrainVertex` = 8 Byte, Pos+Normal in 1× `uint32` (`SectionIndexing.hpp`) |
 | 6 | Bindless / Descriptor Indexing | Nein | Ein `sampler2DArray`, einmal gebunden (`TerrainPass`) |
 | 7 | GPU-Driven Rendering | Indirect Draw da, GPU-Culling nein | `vkCmdDrawIndexedIndirect`; Culling CPU-seitig in `build_snapshot` |
-| 8 | Chunk LOD | **Phase D done (LOD1)** | `TerrainLod.hpp`, `ChunkLodMesher`, `StreamingTerrainSystem` LOD1 + `vertex_scale`; D.2 impostors optional |
+| 8 | Chunk LOD | **Phase D done (LOD1 + D.2 impostors)** | `TerrainLod.hpp`, `ChunkLodMesher`, `ChunkImpostor`, `TerrainImpostorPass` |
 | 9 | Occlusion Culling | **Phase E done** | `SectionVisibility.hpp`, `connectivity_allows_draw` in `build_snapshot` |
 | 10 | Lighting AO + Block Light | **Phase B done** | `corner_ao` + Shader konsumiert `ao`/`light`; Wasser `ao = 3` |
 
@@ -40,7 +40,7 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 | **A** | Section-Occlusion-Skip (#1-Rest) | Klein | `SectionRenderMeta` — **implemented** (`000de64`) |
 | **B** | AO korrekt berechnen (#10) | Klein | Vertex-AO + Shader-Light — **implemented** (`fce273b`) |
 | **C** | Job-Priorisierung härten (#4-Rest) | Mittel | Section-Priority-Queue Mesh/GPU/Upload — **implemented** |
-| **D** | Chunk-LOD (#8) | Groß | LOD-Mesher + Distanz-Auswahl — **implemented** (`997f5e7`, `8e80324`); D.2 impostors optional |
+| **D** | Chunk-LOD (#8) | Groß | LOD-Mesher + Distanz-Auswahl + D.2 color impostors — **implemented** |
 | **E** | Occlusion Culling (#9) | Mittel-groß | Konnektivitäts-/Software-Occlusion, nutzt A-Flags — **implemented** (`f3f337f`, `1a37719`) |
 | **F** | GPU-Driven Culling (#7) | Groß | Frustum/Occlusion/LOD auf GPU (Compute) |
 | **G** | Bindless / Descriptor Indexing (#6) | Mittel | Vorbereitung für #2 (Material-Vielfalt) |

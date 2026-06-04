@@ -10,6 +10,16 @@
 
 namespace engine {
 
+struct DrawImpostor {
+    ChunkCoord coord{};
+    glm::vec3 model_translation{};
+    glm::vec3 color{};
+    float min_y = 0.f;
+    float max_y = 0.f;
+    glm::vec3 cull_min{};
+    glm::vec3 cull_max{};
+};
+
 struct DrawSection {
     ChunkCoord coord{};
     std::uint8_t section_index = 0;
@@ -34,6 +44,7 @@ struct WorldRenderSnapshot {
     glm::vec4 ambient_fog{0.f};
     std::vector<DrawSection> opaque_sections;
     std::vector<DrawSection> water_sections;
+    std::vector<DrawImpostor> impostors;
 };
 
 } // namespace engine

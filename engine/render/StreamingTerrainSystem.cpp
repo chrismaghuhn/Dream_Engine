@@ -358,6 +358,7 @@ void StreamingTerrainSystem::invalidate_chunk_mesh(const ChunkCoord coord) {
         lod1_state.opaque_gpu_slot_id = 0;
     }
     chunk_state.active_lod = TerrainLodLevel::Lod0;
+    chunk_state.impostor = {};
 }
 
 void StreamingTerrainSystem::soft_invalidate_chunk_mesh(const ChunkCoord coord) {
@@ -407,6 +408,12 @@ void StreamingTerrainSystem::soft_invalidate_chunk_mesh(const ChunkCoord coord) 
 void StreamingTerrainSystem::on_chunk_loaded(const ChunkCoord coord) {
     if (store_->is_pending_unload(coord)) {
         return;
+    }
+
+    if (const Chunk* chunk = store_->try_get(coord)) {
+        ChunkMeshState& chunk_state = chunk_meshes_[coord];
+        chunk_state.coord = coord;
+        chunk_state.impostor = compute_chunk_impostor(*chunk);
     }
 
     if (store_ != nullptr) {
@@ -1689,9 +1696,12 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                                             const GpuMeshPool& mesh_pool) {
     snapshot.opaque_sections.clear();
     snapshot.water_sections.clear();
+    snapshot.impostors.clear();
     culled_opaque_sections_.clear();
     culled_water_sections_.clear();
+    culled_impostors_.clear();
     lod1_draw_chunks_              = 0;
+    impostor_draw_chunks_          = 0;
     water_border_lod0_forced_      = 0;
     connectivity_visible_sections_ = 0;
     connectivity_culled_sections_  = 0;
@@ -1712,6 +1722,7 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
     std::uint32_t opaque_indirect_index = 0;
     std::uint32_t water_indirect_index  = 0;
     std::uint32_t lod1_drawn            = 0;
+    std::uint32_t impostor_drawn        = 0;
 
     const float max_draw_dist_sq = max_draw_distance_blocks() * max_draw_distance_blocks();
 
@@ -1814,6 +1825,49 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
             return true;
         };
 
+        auto emit_impostor = [&]() -> bool {
+            if (impostor_drawn >= static_cast<std::uint32_t>(kMaxImpostorDrawChunks)) {
+                return false;
+            }
+            if (!force_streaming_edge && connectivity_culling_active(visibility)) {
+                bool any_visible = false;
+                for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
+                    if (connectivity_allows_draw(visibility, {coord, section_index})) {
+                        any_visible = true;
+                        break;
+                    }
+                }
+                if (!any_visible) {
+                    return false;
+                }
+            }
+            if (!chunk_state.impostor.valid) {
+                if (const Chunk* chunk = store.try_get(coord)) {
+                    chunk_state.impostor = compute_chunk_impostor(*chunk);
+                }
+            }
+            if (!chunk_state.impostor.valid) {
+                return false;
+            }
+            const glm::vec3 model_translation = chunk_origin_world - render_origin;
+            const glm::vec3 cull_min          = model_translation;
+            const glm::vec3 cull_max          = model_translation + glm::vec3(32.f);
+            if (!aabb_intersects_frustum(frustum_planes, cull_min, cull_max)) {
+                return false;
+            }
+            culled_impostors_.push_back(DrawImpostor{
+                .coord = coord,
+                .model_translation = model_translation,
+                .color = chunk_state.impostor.color,
+                .min_y = chunk_state.impostor.min_y,
+                .max_y = chunk_state.impostor.max_y,
+                .cull_min = cull_min,
+                .cull_max = cull_max,
+            });
+            ++impostor_drawn;
+            return true;
+        };
+
         if (force_water_border || force_streaming_edge) {
             append_lod0_opaque_draws(coord,
                                     chunk_state,
@@ -1824,6 +1878,8 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                                     visibility,
                                     mesh_pool,
                                     opaque_indirect_index);
+        } else if (desired_lod == TerrainLodLevel::Impostor) {
+            emit_impostor();
         } else if (desired_lod == TerrainLodLevel::Lod1 && lod1_drawable) {
             emit_lod1_opaque();
         } else {
@@ -1852,7 +1908,8 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                                 opaque_indirect_index);
     });
 
-    lod1_draw_chunks_ = lod1_drawn;
+    lod1_draw_chunks_     = lod1_drawn;
+    impostor_draw_chunks_ = impostor_drawn;
 
     std::sort(culled_water_sections_.begin(),
               culled_water_sections_.end(),
@@ -1862,6 +1919,7 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
 
     snapshot.opaque_sections.swap(culled_opaque_sections_);
     snapshot.water_sections.swap(culled_water_sections_);
+    snapshot.impostors.swap(culled_impostors_);
 }
 
 } // namespace engine

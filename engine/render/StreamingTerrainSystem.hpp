@@ -6,6 +6,7 @@
 #include "engine/render/SectionVisibility.hpp"
 #include "engine/render/WorldRenderSnapshot.hpp"
 #include "engine/world/ChunkStore.hpp"
+#include "engine/world/ChunkImpostor.hpp"
 #include "engine/world/TerrainLod.hpp"
 #include "engine/world/WorldConfig.hpp"
 #include "engine/world/WorldEvents.hpp"
@@ -53,6 +54,7 @@ public:
     [[nodiscard]] int count_pending_mesh_jobs() const;
     [[nodiscard]] int count_pending_lod1_mesh_jobs() const;
     [[nodiscard]] std::uint32_t count_lod1_draw_chunks() const { return lod1_draw_chunks_; }
+    [[nodiscard]] std::uint32_t count_impostor_draw_chunks() const { return impostor_draw_chunks_; }
     [[nodiscard]] std::uint32_t count_water_border_lod0_forced() const {
         return water_border_lod0_forced_;
     }
@@ -143,6 +145,7 @@ private:
         ChunkCoord coord{};
         std::array<SectionMeshState, 8> sections{};
         ChunkLod1MeshState lod1{};
+        ChunkImpostorSummary impostor{};
         TerrainLodLevel active_lod = TerrainLodLevel::Lod0;
     };
 
@@ -213,6 +216,7 @@ private:
     static constexpr int kMaxUploadsPerFrame = 24;
     static constexpr int kMaxOpaqueDrawSections = 512;
     static constexpr int kMaxLod1DrawChunks = 256;
+    static constexpr int kMaxImpostorDrawChunks = 384;
     static constexpr int kMaxWaterDrawSections = 128;
     static constexpr int kMaxTotalIndirectDraws = 512;
     static constexpr int kMeshChunkRadius = 6;
@@ -233,7 +237,9 @@ private:
     std::vector<std::uint32_t> pending_slot_frees_;
     std::vector<DrawSection> culled_opaque_sections_;
     std::vector<DrawSection> culled_water_sections_;
+    std::vector<DrawImpostor> culled_impostors_;
     std::uint32_t lod1_draw_chunks_ = 0;
+    std::uint32_t impostor_draw_chunks_ = 0;
     std::uint32_t water_border_lod0_forced_ = 0;
     std::uint32_t connectivity_visible_sections_ = 0;
     std::uint32_t connectivity_culled_sections_ = 0;

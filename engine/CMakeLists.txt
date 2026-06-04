@@ -15,6 +15,7 @@ set(ENGINE_CORE_SOURCES
     world/GreedyMesher.cpp
     world/TerrainLod.cpp
     world/ChunkLodMesher.cpp
+    world/ChunkImpostor.cpp
     render/ThinTerrainPreview.cpp
     render/StreamingTerrainSystem.cpp
     render/SectionVisibility.cpp
@@ -50,6 +51,7 @@ set(ENGINE_RENDER_SOURCES
     render/MeshUploadQueue.cpp
     render/ShaderManager.cpp
     render/TerrainPass.cpp
+    render/TerrainImpostorPass.cpp
     render/BlockTextureArray.cpp
     render/SkyPass.cpp
     render/WaterPass.cpp

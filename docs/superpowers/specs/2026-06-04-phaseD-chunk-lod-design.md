@@ -1,6 +1,6 @@
 # Phase D — Chunk LOD — Design
 
-**Status:** Implemented (2026-06-04) — commits `997f5e7`, `8e80324`, `Phase D: LOD presets + docs`
+**Status:** Implemented (2026-06-04) — commits `997f5e7`, `8e80324`, `Phase D: LOD presets + docs`; **D.2 far color impostors** implemented
 **Roadmap:** `2026-06-04-rendering-performance-roadmap-design.md` (Phase D)
 **Bezug:** `2026-06-03-voxel-engine-design.md` §11 (LOD0), §12 (Meshing), §13 (Renderer), §14 (Streaming); Phasen A/B/C Specs
 
@@ -34,7 +34,7 @@ Erfolgskriterien (manuell, nach Implementierung):
 | Metadaten | `ChunkRenderMeta` (z. B. `has_water`) + bestehendes `SectionRenderMeta` (Phase A) |
 | Observability | ImGui: LOD0/LOD1 draw counts, pending LOD1 jobs, skipped water-border |
 
-### In Scope (D.2 — optional, gleiche Phase wenn Zeit, sonst Follow-up-PR)
+### In Scope (D.2 — implemented)
 
 | Thema | Inhalt |
 |-------|--------|
@@ -453,4 +453,4 @@ Siehe **Out of Scope** oben. Phase E/F/G/H bleiben unberührt.
 
 ## Freigabe
 
-Implemented 2026-06-04. D.2 color impostors remain optional follow-up.
+Implemented 2026-06-04. D.2 color impostors implemented (`ChunkImpostor`, `TerrainImpostorPass`, snapshot `impostors`).

@@ -10,6 +10,7 @@
 #include "engine/render/SnapshotRing.hpp"
 #include "engine/render/ShaderManager.hpp"
 #include "engine/render/SkyPass.hpp"
+#include "engine/render/TerrainImpostorPass.hpp"
 #include "engine/render/TerrainPass.hpp"
 #include "engine/render/WaterPass.hpp"
 #include "engine/render/VulkanContext.hpp"
@@ -111,6 +112,7 @@ private:
     std::unique_ptr<MeshUploadQueue> mesh_upload_queue_;
     std::unique_ptr<PerFrameGpuWriteRing> per_frame_writes_;
     TerrainPass terrain_pass_{};
+    TerrainImpostorPass impostor_pass_{};
     BlockTextureArray block_textures_{};
     SkyPass sky_pass_{};
     WaterPass water_pass_{};

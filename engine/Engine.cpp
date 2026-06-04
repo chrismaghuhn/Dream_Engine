@@ -547,6 +547,9 @@ void Engine::run() {
         const std::uint32_t lod1_draw_chunks = config_.thin_terrain_preview()
             ? 0
             : streaming_terrain_.count_lod1_draw_chunks();
+        const std::uint32_t impostor_draw_chunks = config_.thin_terrain_preview()
+            ? 0
+            : streaming_terrain_.count_impostor_draw_chunks();
         const std::uint32_t pending_lod1_mesh_jobs = config_.thin_terrain_preview()
             ? 0
             : static_cast<std::uint32_t>(streaming_terrain_.count_pending_lod1_mesh_jobs());
@@ -585,6 +588,7 @@ void Engine::run() {
                 .gpu_ready_sections = gpu_ready_sections,
                 .pending_mesh_jobs = pending_mesh_jobs,
                 .lod1_draw_chunks = lod1_draw_chunks,
+                .impostor_draw_chunks = impostor_draw_chunks,
                 .pending_lod1_mesh_jobs = pending_lod1_mesh_jobs,
                 .water_border_lod0_forced = water_border_lod0_forced,
                 .connectivity_visible_sections = connectivity_visible_sections,

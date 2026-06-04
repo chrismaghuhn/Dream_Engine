@@ -147,6 +147,14 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
             .vert_spv = shader_dir / "water.vert.spv",
             .frag_spv = shader_dir / "water.frag.spv",
         });
+    shader_manager_.register_shader(
+        "impostor",
+        ShaderManager::ShaderSource{
+            .vert = shader_source_dir / "impostor.vert",
+            .frag = shader_source_dir / "impostor.frag",
+            .vert_spv = shader_dir / "impostor.vert.spv",
+            .frag_spv = shader_dir / "impostor.frag.spv",
+        });
 
     if (!terrain_pass_.init(context_, render_pass_, shader_dir, *per_frame_writes_)) {
         SPDLOG_ERROR("Failed to initialize terrain pass");
@@ -160,6 +168,12 @@ bool Renderer::init(Platform& platform, const MemoryBudget& memory_budget) {
         return false;
     }
     terrain_pass_.bind_block_texture(block_textures_.image_view(), block_textures_.sampler());
+
+    if (!impostor_pass_.init(context_, render_pass_, shader_dir)) {
+        SPDLOG_ERROR("Failed to initialize terrain impostor pass");
+        shutdown();
+        return false;
+    }
 
     if (!sky_pass_.init(context_, render_pass_, shader_dir)) {
         SPDLOG_ERROR("Failed to initialize sky pass");
@@ -253,6 +267,7 @@ void Renderer::shutdown() {
 
     sky_pass_.shutdown();
     water_pass_.shutdown();
+    impostor_pass_.shutdown();
     block_textures_.shutdown();
     terrain_pass_.shutdown();
     shader_manager_.shutdown();
@@ -412,9 +427,16 @@ void Renderer::record_frame(const std::uint32_t image_index,
         .proj = frame_uniforms_.proj,
         .render_origin = glm::vec4(frame_uniforms_.render_origin, 0.f),
     };
+    const TerrainImpostorPass::FrameUniformGpu impostor_uniforms{
+        .view = frame_uniforms_.view,
+        .proj = frame_uniforms_.proj,
+        .render_origin = glm::vec4(frame_uniforms_.render_origin, 0.f),
+        .ambient_fog = snapshot.ambient_fog,
+    };
     const std::size_t opaque_draw_count = snapshot.opaque_sections.size();
 
     terrain_pass_.write_frame_uniforms(frame_index_, uniforms);
+    impostor_pass_.write_frame_uniforms(frame_index_, impostor_uniforms);
     terrain_pass_.write_indirect_commands(frame_index_, snapshot, mesh_pool_);
     water_pass_.write_indirect_commands(frame_index_, snapshot, mesh_pool_, opaque_draw_count);
 
@@ -434,6 +456,8 @@ void Renderer::record_frame(const std::uint32_t image_index,
     vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
     terrain_pass_.record(
         command_buffer, frame_index_, snapshot, mesh_pool_, context_.swapchain_extent());
+    impostor_pass_.record(
+        command_buffer, frame_index_, snapshot, context_.swapchain_extent());
     sky_pass_.record(command_buffer, context_.swapchain_extent());
     water_pass_.record(command_buffer,
                        frame_index_,
@@ -571,6 +595,7 @@ void Renderer::recreate_render_passes() {
 
     sky_pass_.shutdown();
     water_pass_.shutdown();
+    impostor_pass_.shutdown();
     terrain_pass_.shutdown();
 
     if (!terrain_pass_.init(context_, render_pass_, shader_dir, *per_frame_writes_)) {
@@ -579,6 +604,10 @@ void Renderer::recreate_render_passes() {
     }
     // Re-point the freshly allocated descriptor sets at the existing texture array.
     terrain_pass_.bind_block_texture(block_textures_.image_view(), block_textures_.sampler());
+    if (!impostor_pass_.init(context_, render_pass_, shader_dir)) {
+        SPDLOG_ERROR("Failed to recreate terrain impostor pass");
+        return;
+    }
     if (!sky_pass_.init(context_, render_pass_, shader_dir)) {
         SPDLOG_ERROR("Failed to recreate sky pass");
         return;
