@@ -43,6 +43,9 @@ struct CombatController {
     float attack_yaw = 0.f;
     bool hit_consumed = false;
 
+    // Accumulates dt while in Recovery; drives the fixed recovery duration.
+    float recovery_timer = 0.f;
+
     // Hitstop overlay (not a CombatPhase value).
     bool hitstop_active = false;
     CombatPhase phase_before_hitstop = CombatPhase::Idle;
