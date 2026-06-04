@@ -17,6 +17,7 @@ set(ENGINE_CORE_SOURCES
     world/ChunkLodMesher.cpp
     render/ThinTerrainPreview.cpp
     render/StreamingTerrainSystem.cpp
+    render/SectionVisibility.cpp
     gameplay/Camera.cpp
     gameplay/CameraSystem.cpp
     gameplay/PlayerMotor.cpp
