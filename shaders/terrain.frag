@@ -2,7 +2,9 @@
 
 layout(location = 0) flat in uint v_material;
 layout(location = 1) flat in uint v_face;
-layout(location = 2) in vec3 v_world;
+layout(location = 2) in float v_ao_mul;
+layout(location = 3) in vec2 v_light_levels;
+layout(location = 4) in vec3 v_world;
 
 // Block texture atlas as a 2D array. One layer per (material, face-category).
 // Layer mapping is kept in sync with BlockTextureArray on the C++ side:
@@ -77,9 +79,16 @@ void main() {
     const vec2 uv = fract(uv_for_face(v_face, v_world));
     const vec3 albedo = texture(u_block_tex, vec3(uv, float(layer))).rgb;
 
+    const vec3 sky_tint   = vec3(0.85, 0.92, 1.00);
+    const vec3 block_tint = vec3(1.00, 0.82, 0.55);
+    const float ambient_floor = 0.12;
+    vec3 lit = albedo * (v_light_levels.x * sky_tint + v_light_levels.y * block_tint + ambient_floor);
+
     const vec3 n = face_normal(v_face);
     const vec3 light_dir = normalize(vec3(0.35, 0.85, 0.25));
     const float ndl = clamp(dot(n, light_dir), 0.2, 1.0);
-    const vec3 ambient = vec3(0.18, 0.20, 0.24);
-    out_color = vec4(albedo * ndl + ambient * 0.35, 1.0);
+    lit = mix(lit, lit * ndl, 0.18);
+
+    lit *= v_ao_mul;
+    out_color = vec4(lit, 1.0);
 }

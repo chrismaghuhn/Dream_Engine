@@ -189,13 +189,25 @@ bool TerrainPass::create_pipeline(VkRenderPass render_pass, const std::filesyste
             .format = VK_FORMAT_R16_UINT,
             .offset = offsetof(TerrainVertex, material_id),
         },
+        {
+            .location = 2,
+            .binding = 0,
+            .format = VK_FORMAT_R8_UINT,
+            .offset = offsetof(TerrainVertex, ao),
+        },
+        {
+            .location = 3,
+            .binding = 0,
+            .format = VK_FORMAT_R8_UINT,
+            .offset = offsetof(TerrainVertex, light),
+        },
     };
 
     const VkPipelineVertexInputStateCreateInfo vertex_input{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = 1,
         .pVertexBindingDescriptions = &binding,
-        .vertexAttributeDescriptionCount = 2,
+        .vertexAttributeDescriptionCount = 4,
         .pVertexAttributeDescriptions = attributes,
     };
 

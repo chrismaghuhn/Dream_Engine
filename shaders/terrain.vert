@@ -2,6 +2,8 @@
 
 layout(location = 0) in uint in_packed_pos;
 layout(location = 1) in uint in_material;
+layout(location = 2) in uint in_ao;
+layout(location = 3) in uint in_light;
 
 layout(set = 0, binding = 0) uniform FrameUniform {
     mat4 view;
@@ -15,7 +17,16 @@ layout(push_constant) uniform Push {
 
 layout(location = 0) flat out uint v_material;
 layout(location = 1) flat out uint v_face;
-layout(location = 2) out vec3 v_world;
+layout(location = 2) out float v_ao_mul;
+layout(location = 3) out vec2 v_light_levels;
+layout(location = 4) out vec3 v_world;
+
+float ao_mul_from_u8(uint ao) {
+    if (ao == 0u) return 0.55;
+    if (ao == 1u) return 0.72;
+    if (ao == 2u) return 0.86;
+    return 1.00;
+}
 
 void main() {
     const uint packed = in_packed_pos;
@@ -26,7 +37,7 @@ void main() {
     const vec3 world = push.model_translation + vec3(x, y, z);
     gl_Position = frame.proj * frame.view * vec4(world, 1.0);
     v_material = in_material;
-    // Render-space position (origin-rebased, block-aligned). Used to derive
-    // per-block tiling UVs in the fragment shader via fract().
     v_world = world;
+    v_ao_mul = ao_mul_from_u8(in_ao);
+    v_light_levels = vec2(float(in_light >> 4u) / 15.0, float(in_light & 15u) / 15.0);
 }

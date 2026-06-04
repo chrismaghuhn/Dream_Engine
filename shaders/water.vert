@@ -2,6 +2,8 @@
 
 layout(location = 0) in uint in_packed_pos;
 layout(location = 1) in uint in_material;
+layout(location = 2) in uint in_ao;
+layout(location = 3) in uint in_light;
 
 layout(set = 0, binding = 0) uniform FrameUniform {
     mat4 view;
@@ -14,6 +16,7 @@ layout(push_constant) uniform Push {
 } push;
 
 layout(location = 0) flat out uint v_material;
+layout(location = 1) out vec2 v_light_levels;
 
 void main() {
     const uint packed = in_packed_pos;
@@ -23,4 +26,5 @@ void main() {
     const vec3 world = push.model_translation + vec3(x, y, z);
     gl_Position = frame.proj * frame.view * vec4(world, 1.0);
     v_material = in_material;
+    v_light_levels = vec2(float(in_light >> 4u) / 15.0, float(in_light & 15u) / 15.0);
 }

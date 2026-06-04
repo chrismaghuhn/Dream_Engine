@@ -6,6 +6,9 @@
 #include "engine/world/Section.hpp"
 #include "engine/world/SectionIndexing.hpp"
 
+#include <algorithm>
+#include <array>
+
 namespace {
 
 size_t quad_count(const std::vector<uint32_t>& indices) {
@@ -168,4 +171,128 @@ TEST_CASE("greedy mesher border light copied to edge vertex nibbles") {
     }
 
     REQUIRE(found_px_face);
+}
+
+std::array<uint8_t, 4> aos_on_face(const std::vector<engine::TerrainVertex>& verts, engine::Face face) {
+    std::array<uint8_t, 4> out{255, 255, 255, 255};
+    int n = 0;
+    for (const engine::TerrainVertex& v : verts) {
+        if (static_cast<engine::Face>((v.packed_position_normal >> 15) & 7u) != face) {
+            continue;
+        }
+        if (n < 4) {
+            out[static_cast<size_t>(n++)] = v.ao;
+        }
+    }
+    return out;
+}
+
+TEST_CASE("greedy mesher water cube all ao bright") {
+    engine::Section section;
+    fill_water(section, 0, 0, 0);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    REQUIRE_FALSE(water_vertices.empty());
+    for (const engine::TerrainVertex& v : water_vertices) {
+        REQUIRE(v.ao == 3);
+    }
+}
+
+TEST_CASE("greedy mesher L corner inner ao darker than exposed") {
+    engine::Section section;
+    fill_solid(section, 0, 0, 0);
+    fill_solid(section, 1, 0, 0);
+    fill_solid(section, 0, 1, 0);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    uint8_t min_ao = 3;
+    uint8_t max_ao = 0;
+    for (const engine::TerrainVertex& v : opaque_vertices) {
+        min_ao = std::min(min_ao, v.ao);
+        max_ao = std::max(max_ao, v.ao);
+    }
+    REQUIRE(min_ao < max_ao);
+    REQUIRE(min_ao <= 2);
+    REQUIRE(max_ao >= 2);
+}
+
+TEST_CASE("greedy mesher asymmetric face ao varies per corner") {
+    engine::Section section;
+    fill_solid(section, 0, 0, 0);
+    fill_solid(section, 0, 1, 0);
+    fill_solid(section, 0, 0, 1);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    uint8_t min_ao = 3;
+    uint8_t max_ao = 0;
+    for (const engine::TerrainVertex& v : opaque_vertices) {
+        min_ao = std::min(min_ao, v.ao);
+        max_ao = std::max(max_ao, v.ao);
+    }
+    REQUIRE(min_ao < max_ao);
+}
+
+TEST_CASE("greedy mesher single block has ao below max") {
+    engine::Section section;
+    for (int x = 0; x < 3; ++x) {
+        for (int z = 0; z < 3; ++z) {
+            fill_solid(section, x, 0, z);
+        }
+    }
+    fill_solid(section, 1, 1, 1);
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    bool any_below_3 = false;
+    for (const engine::TerrainVertex& v : opaque_vertices) {
+        if (v.ao < 3) {
+            any_below_3 = true;
+        }
+    }
+    REQUIRE(any_below_3);
+}
+
+TEST_CASE("greedy mesher low ao can coexist with high block light") {
+    engine::Section section;
+    fill_solid(section, 15, 0, 0);
+
+    for (engine::BorderCell& cell : section.border.face[static_cast<size_t>(engine::Face::PX)]) {
+        cell.block       = engine::make_block_state(engine::BLOCK_STONE, 0);
+        cell.sky_light   = 0;
+        cell.block_light = 14;
+    }
+
+    std::vector<engine::TerrainVertex> opaque_vertices;
+    std::vector<uint32_t> opaque_indices;
+    std::vector<engine::TerrainVertex> water_vertices;
+    std::vector<uint32_t> water_indices;
+    mesh_both(section, opaque_vertices, opaque_indices, water_vertices, water_indices);
+
+    bool found = false;
+    for (const engine::TerrainVertex& v : opaque_vertices) {
+        if (v.ao < 3 && (v.light & 0xFu) >= 14) {
+            found = true;
+            break;
+        }
+    }
+    REQUIRE(found);
 }

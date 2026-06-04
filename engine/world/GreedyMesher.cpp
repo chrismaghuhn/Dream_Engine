@@ -2,7 +2,9 @@
 
 #include "engine/gameplay/BlockRegistry.hpp"
 
+#include <algorithm>
 #include <glm/glm.hpp>
+#include <utility>
 
 #if defined(_MSC_VER)
 #define ENGINE_MESH_NOINLINE __declspec(noinline)
@@ -148,6 +150,69 @@ Face face_for_axis(int axis, bool positive) {
     }
 }
 
+struct TangentBasis {
+    glm::ivec3 air_step{0};
+    glm::ivec3 eu{0};
+    glm::ivec3 ev{0};
+};
+
+ENGINE_MESH_NOINLINE TangentBasis tangent_basis_for_axis(int axis, bool positive) {
+    TangentBasis b{};
+    switch (axis) {
+    case 0:
+        b.eu       = {0, 1, 0};
+        b.ev       = {0, 0, 1};
+        b.air_step = {positive ? 1 : -1, 0, 0};
+        break;
+    case 1:
+        b.eu       = {1, 0, 0};
+        b.ev       = {0, 0, 1};
+        b.air_step = {0, positive ? 1 : -1, 0};
+        break;
+    default:
+        b.eu       = {1, 0, 0};
+        b.ev       = {0, 1, 0};
+        b.air_step = {0, 0, positive ? 1 : -1};
+        break;
+    }
+    return b;
+}
+
+ENGINE_MESH_NOINLINE glm::ivec3 add_ivec3(glm::ivec3 a, glm::ivec3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+ENGINE_MESH_NOINLINE glm::ivec3 scale_ivec3(glm::ivec3 v, int s) {
+    return {v.x * s, v.y * s, v.z * s};
+}
+
+ENGINE_MESH_NOINLINE bool occludes_ao(const VoxelSample& s) {
+    return s.opaque_solid;
+}
+
+ENGINE_MESH_NOINLINE uint8_t corner_ao(int axis,
+                                       bool positive,
+                                       int x,
+                                       int y,
+                                       int z,
+                                       int du_sign,
+                                       int dv_sign,
+                                       const Section& section) {
+    // Vertices sit on the air-side of the face; step back into the solid voxel first.
+    const TangentBasis b  = tangent_basis_for_axis(axis, positive);
+    const glm::ivec3 base = add_ivec3({x, y, z}, scale_ivec3(b.air_step, -1));
+    const glm::ivec3 s1   = add_ivec3(base, scale_ivec3(b.eu, du_sign));
+    const glm::ivec3 s2   = add_ivec3(base, scale_ivec3(b.ev, dv_sign));
+    const glm::ivec3 c =
+        add_ivec3(add_ivec3(base, scale_ivec3(b.eu, du_sign)), scale_ivec3(b.ev, dv_sign));
+
+    const int a  = occludes_ao(sample_voxel(section, s1.x, s1.y, s1.z)) ? 1 : 0;
+    const int b2 = occludes_ao(sample_voxel(section, s2.x, s2.y, s2.z)) ? 1 : 0;
+    const int c2 = occludes_ao(sample_voxel(section, c.x, c.y, c.z)) ? 1 : 0;
+    const int occl = std::max(c2, a * b2);
+    return static_cast<uint8_t>(std::clamp(3 - (a + b2 + occl), 0, 3));
+}
+
 ENGINE_MESH_NOINLINE void emit_quad(
     int axis,
     bool positive,
@@ -158,6 +223,7 @@ ENGINE_MESH_NOINLINE void emit_quad(
     int height,
     const VoxelSample& face_side,
     const Section& section,
+    bool is_water_layer,
     std::vector<TerrainVertex>& vertices,
     std::vector<uint32_t>& indices) {
     const Face face = face_for_axis(axis, positive);
@@ -199,8 +265,31 @@ ENGINE_MESH_NOINLINE void emit_quad(
     const uint32_t base = static_cast<uint32_t>(vertices.size());
     const uint16_t material = block_id(face_side.block);
 
+    auto tangent_uv = [&](const glm::ivec3& c) {
+        int tu = 0;
+        int tv = 0;
+        switch (axis) {
+        case 0:
+            tu = c.y;
+            tv = c.z;
+            break;
+        case 1:
+            tu = c.x;
+            tv = c.z;
+            break;
+        default:
+            tu = c.x;
+            tv = c.y;
+            break;
+        }
+        const int du_sign = (tu == u0 + width) ? 1 : -1;
+        const int dv_sign = (tv == v0 + height) ? 1 : -1;
+        return std::pair{du_sign, dv_sign};
+    };
+
     for (int i = 0; i < 4; ++i) {
         const glm::ivec3& c = corners[i];
+        const auto [du_sign, dv_sign] = tangent_uv(c);
         TerrainVertex vert{};
         vert.packed_position_normal = pack_vertex(
             static_cast<uint32_t>(c.x),
@@ -208,7 +297,9 @@ ENGINE_MESH_NOINLINE void emit_quad(
             static_cast<uint32_t>(c.z),
             face);
         vert.material_id = material;
-        vert.ao            = 0;
+        vert.ao            = is_water_layer
+                                 ? static_cast<uint8_t>(3)
+                                 : corner_ao(axis, positive, c.x, c.y, c.z, du_sign, dv_sign, section);
         vert.light         = corner_light(c.x, c.y, c.z, face_side, section);
         vertices.push_back(vert);
     }
@@ -240,6 +331,7 @@ bool water_face_predicate(const VoxelSample& sample) {
 ENGINE_MESH_NOINLINE void mesh_section_layer(
     const Section& section,
     FacePredicate face_predicate,
+    bool is_water_layer,
     std::vector<TerrainVertex>& vertices,
     std::vector<uint32_t>& indices) {
     std::vector<uint32_t> mask(static_cast<size_t>(SECTION_DIM * SECTION_DIM), 0u);
@@ -320,6 +412,7 @@ ENGINE_MESH_NOINLINE void mesh_section_layer(
                             height,
                             face_side,
                             section,
+                            is_water_layer,
                             vertices,
                             indices);
 
@@ -351,8 +444,8 @@ MeshSectionResult mesh_section(
     water_vertices.clear();
     water_indices.clear();
 
-    mesh_section_layer(section, opaque_face_predicate, opaque_vertices, opaque_indices);
-    mesh_section_layer(section, water_face_predicate, water_vertices, water_indices);
+    mesh_section_layer(section, opaque_face_predicate, false, opaque_vertices, opaque_indices);
+    mesh_section_layer(section, water_face_predicate, true, water_vertices, water_indices);
 
     return MeshSectionResult{
         opaque_vertices.size(),
