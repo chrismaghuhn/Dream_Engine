@@ -5,6 +5,7 @@
 #include "engine/render/MeshUploadQueue.hpp"
 #include "engine/render/WorldRenderSnapshot.hpp"
 #include "engine/world/ChunkStore.hpp"
+#include "engine/world/TerrainLod.hpp"
 #include "engine/world/WorldConfig.hpp"
 #include "engine/world/WorldEvents.hpp"
 
@@ -44,10 +45,17 @@ public:
     [[nodiscard]] std::size_t count_empty_skip_sections() const;
     [[nodiscard]] std::size_t count_occluded_skip_sections() const;
     [[nodiscard]] int count_pending_mesh_jobs() const;
+    [[nodiscard]] int count_pending_lod1_mesh_jobs() const;
+    [[nodiscard]] std::uint32_t count_lod1_draw_chunks() const { return lod1_draw_chunks_; }
+    [[nodiscard]] std::uint32_t count_water_border_lod0_forced() const {
+        return water_border_lod0_forced_;
+    }
 
     // Mesh scheduling / occlusion helpers (public for headless tests; MSVC mangles
     // private members differently than `#define private public` in test TUs).
     void schedule_section_mesh(ChunkCoord coord, std::uint8_t section_index);
+    void schedule_chunk_lod1_mesh(ChunkCoord coord);
+    [[nodiscard]] TerrainLodLevel select_chunk_lod_for_coord(ChunkCoord coord) const;
     [[nodiscard]] bool section_fully_occluded(ChunkCoord coord, std::uint8_t section_index) const;
 
     /// Block until nearby section meshes are ready (startup / save load).
@@ -100,15 +108,36 @@ private:
         std::vector<std::uint32_t> water_indices;
     };
 
+    struct ChunkLod1MeshState {
+        std::uint32_t opaque_gpu_slot_id = 0;
+        std::uint32_t opaque_index_count = 0;
+        std::uint32_t opaque_draw_index_count = 0;
+        bool mesh_ready = false;
+        bool opaque_gpu_allocated = false;
+        bool opaque_upload_queued = false;
+        bool opaque_gpu_uploaded = false;
+        bool mesh_job_pending = false;
+        bool empty_skip = false;
+        bool needs_remesh = false;
+        std::uint32_t mesh_schedule_serial = 0;
+        std::uint32_t stale_opaque_gpu_slot_id = 0;
+        std::uint32_t stale_opaque_draw_index_count = 0;
+        std::vector<TerrainVertex> opaque_vertices;
+        std::vector<std::uint32_t> opaque_indices;
+    };
+
     struct ChunkMeshState {
         ChunkCoord coord{};
         std::array<SectionMeshState, 8> sections{};
+        ChunkLod1MeshState lod1{};
+        TerrainLodLevel active_lod = TerrainLodLevel::Lod0;
     };
 
     struct MeshCompletion {
         ChunkCoord coord{};
         std::uint8_t section_index = 0;
         std::uint32_t schedule_serial = 0;
+        bool lod1 = false;
         std::vector<TerrainVertex> opaque_vertices;
         std::vector<std::uint32_t> opaque_indices;
         std::vector<TerrainVertex> water_vertices;
@@ -120,6 +149,7 @@ private:
     void schedule_chunk_mesh(ChunkCoord coord);
     enum class SectionMeshSkipKind { Empty, FullyOccluded };
     void mark_section_mesh_skipped(SectionMeshState& section_state, SectionMeshSkipKind kind);
+    void mark_lod1_mesh_skipped(ChunkLod1MeshState& lod1_state);
     void drain_mesh_completions();
     void ensure_gpu_slots(GpuMeshPool& mesh_pool, std::uint32_t submit_snapshot_slot);
     void invalidate_chunk_mesh(ChunkCoord coord);
@@ -131,17 +161,43 @@ private:
     void queue_uploads(MeshUploadQueue& upload_queue, GpuMeshPool& mesh_pool);
     void sync_entity_mesh_slots(ChunkCoord coord, const ChunkMeshState& state);
     void process_mesh_backlog();
+    void process_lod1_mesh_backlog();
     void release_far_gpu_meshes(GpuMeshPool& mesh_pool,
                                 GpuDeferredFreeQueue& deferred_free,
                                 std::uint32_t submit_snapshot_slot);
     void release_section_gpu(SectionMeshState& section_state,
                              GpuDeferredFreeQueue& deferred_free,
                              std::uint32_t submit_snapshot_slot);
+    void release_lod1_gpu(ChunkLod1MeshState& lod1_state,
+                          GpuDeferredFreeQueue& deferred_free,
+                          std::uint32_t submit_snapshot_slot);
+    void maybe_release_lod0_section_gpu_after_lod1_visible(ChunkMeshState& chunk_state,
+                                                           std::uint32_t submit_snapshot_slot);
+    void append_lod0_opaque_draws(const ChunkCoord coord,
+                                    const ChunkMeshState& chunk_state,
+                                    const glm::vec3& chunk_origin_world,
+                                    const glm::vec3& render_origin,
+                                    const std::array<glm::vec4, 6>& frustum_planes,
+                                    const GpuMeshPool& mesh_pool,
+                                    std::uint32_t& opaque_indirect_index);
+    void append_lod0_water_draws(const ChunkCoord coord,
+                                 const ChunkMeshState& chunk_state,
+                                 const glm::vec3& chunk_origin_world,
+                                 const glm::vec3& render_origin,
+                                 const std::array<glm::vec4, 6>& frustum_planes,
+                                 const GpuMeshPool& mesh_pool,
+                                 std::uint32_t& water_indirect_index,
+                                 std::uint32_t opaque_indirect_index);
+    [[nodiscard]] float max_draw_distance_blocks() const;
+    [[nodiscard]] TerrainLodLevel update_chunk_active_lod(ChunkMeshState& chunk_state,
+                                                          ChunkCoord coord) const;
 
     static constexpr int kMaxPendingMeshJobs = 128;
+    static constexpr int kMaxPendingLod1MeshJobs = 32;
     static constexpr int kMaxGpuAllocationsPerFrame = 24;
     static constexpr int kMaxUploadsPerFrame = 24;
     static constexpr int kMaxOpaqueDrawSections = 512;
+    static constexpr int kMaxLod1DrawChunks = 256;
     static constexpr int kMaxWaterDrawSections = 128;
     static constexpr int kMaxTotalIndirectDraws = 512;
     static constexpr int kMeshChunkRadius = 6;
@@ -153,6 +209,7 @@ private:
     ChunkStore* store_ = nullptr;
     JobSystem* jobs_ = nullptr;
     WorldConfig world_config_{};
+    TerrainLodConfig terrain_lod_config_{};
 
     std::unordered_map<ChunkCoord, ChunkMeshState, ChunkCoordHash> chunk_meshes_;
     std::mutex completion_mutex_;
@@ -160,6 +217,8 @@ private:
     std::vector<std::uint32_t> pending_slot_frees_;
     std::vector<DrawSection> culled_opaque_sections_;
     std::vector<DrawSection> culled_water_sections_;
+    std::uint32_t lod1_draw_chunks_ = 0;
+    std::uint32_t water_border_lod0_forced_ = 0;
 };
 
 } // namespace engine

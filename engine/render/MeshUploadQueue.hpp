@@ -20,6 +20,7 @@ struct MeshUploadFlushMark {
     std::uint8_t section_index = 0;
     std::uint32_t slot_id = 0;
     bool water = false;
+    bool lod1 = false;
 };
 
 struct MeshUploadRequest {
@@ -27,6 +28,7 @@ struct MeshUploadRequest {
     std::uint8_t section_index = 0;
     std::uint32_t slot_id = 0;
     bool water = false;
+    bool lod1 = false;
     std::vector<TerrainVertex> vertices;
     std::vector<std::uint32_t> indices;
 };

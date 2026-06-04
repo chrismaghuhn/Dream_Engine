@@ -539,6 +539,15 @@ void Engine::run() {
         const std::uint32_t pending_mesh_jobs = config_.thin_terrain_preview()
             ? 0
             : static_cast<std::uint32_t>(streaming_terrain_.count_pending_mesh_jobs());
+        const std::uint32_t lod1_draw_chunks = config_.thin_terrain_preview()
+            ? 0
+            : streaming_terrain_.count_lod1_draw_chunks();
+        const std::uint32_t pending_lod1_mesh_jobs = config_.thin_terrain_preview()
+            ? 0
+            : static_cast<std::uint32_t>(streaming_terrain_.count_pending_lod1_mesh_jobs());
+        const std::uint32_t water_border_lod0_forced = config_.thin_terrain_preview()
+            ? 0
+            : streaming_terrain_.count_water_border_lod0_forced();
         const std::uint32_t gpu_mesh_budget_mib =
             static_cast<std::uint32_t>(renderer_.mesh_pool().bytes_budget() / (1024 * 1024));
 
@@ -561,6 +570,9 @@ void Engine::run() {
                     : static_cast<std::uint32_t>(streaming_terrain_.count_occluded_skip_sections()),
                 .gpu_ready_sections = gpu_ready_sections,
                 .pending_mesh_jobs = pending_mesh_jobs,
+                .lod1_draw_chunks = lod1_draw_chunks,
+                .pending_lod1_mesh_jobs = pending_lod1_mesh_jobs,
+                .water_border_lod0_forced = water_border_lod0_forced,
                 .gpu_mesh_budget_mib = gpu_mesh_budget_mib,
             },
             inventory_ui);

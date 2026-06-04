@@ -299,6 +299,9 @@ void UiHost::new_frame(const UiOverlayStats& stats, UiInventoryState& inventory_
         ImGui::Text("Occluded skip: %u", stats.occluded_skip_sections);
         ImGui::Text("GPU ready: %u", stats.gpu_ready_sections);
         ImGui::Text("Mesh jobs pending: %d", stats.pending_mesh_jobs);
+        ImGui::Text("LOD1 draw chunks: %u", stats.lod1_draw_chunks);
+        ImGui::Text("LOD1 mesh jobs pending: %u", stats.pending_lod1_mesh_jobs);
+        ImGui::Text("Water-border LOD0 forced: %u", stats.water_border_lod0_forced);
         ImGui::Text("GPU mesh budget: %u MiB", stats.gpu_mesh_budget_mib);
     }
     ImGui::End();

@@ -23,6 +23,9 @@ struct UiOverlayStats {
     std::uint32_t occluded_skip_sections = 0;
     std::uint32_t gpu_ready_sections = 0;
     std::uint32_t pending_mesh_jobs = 0;
+    std::uint32_t lod1_draw_chunks = 0;
+    std::uint32_t pending_lod1_mesh_jobs = 0;
+    std::uint32_t water_border_lod0_forced = 0;
     std::uint32_t gpu_mesh_budget_mib = 0;
 };
 

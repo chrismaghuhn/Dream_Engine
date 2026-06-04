@@ -5,8 +5,10 @@
 #include "engine/world/BlockLight.hpp"
 #include "engine/world/Chunk.hpp"
 #include "engine/world/ChunkLifecycle.hpp"
+#include "engine/world/ChunkLodMesher.hpp"
 #include "engine/world/GreedyMesher.hpp"
 #include "engine/world/SectionIndexing.hpp"
+#include "engine/world/TerrainLod.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -32,12 +34,39 @@ namespace {
 void StreamingTerrainSystem::mark_uploads_complete(const std::vector<MeshUploadFlushMark>& flushed_marks,
                                                  const GpuMeshPool& mesh_pool) {
     for (const MeshUploadFlushMark& mark : flushed_marks) {
-        if (mark.slot_id == 0 || mark.section_index >= 8) {
+        if (mark.slot_id == 0) {
             continue;
         }
 
         const auto chunk_it = chunk_meshes_.find(mark.coord);
         if (chunk_it == chunk_meshes_.end()) {
+            continue;
+        }
+
+        if (mark.lod1) {
+            ChunkLod1MeshState& lod1_state = chunk_it->second.lod1;
+            if (lod1_state.opaque_gpu_slot_id != mark.slot_id) {
+                continue;
+            }
+            const GpuMeshSlot* slot = mesh_pool.slot(mark.slot_id);
+            if (slot == nullptr || !mesh_pool.is_live(mark.slot_id)) {
+                continue;
+            }
+            lod1_state.opaque_draw_index_count =
+                clamp_index_count(slot, lod1_state.opaque_index_count);
+            lod1_state.opaque_gpu_uploaded = lod1_state.opaque_draw_index_count > 0;
+            if (lod1_state.stale_opaque_gpu_slot_id != 0) {
+                pending_slot_frees_.push_back(lod1_state.stale_opaque_gpu_slot_id);
+                lod1_state.stale_opaque_gpu_slot_id = 0;
+                lod1_state.stale_opaque_draw_index_count = 0;
+            }
+            if (chunk_it->second.active_lod == TerrainLodLevel::Lod1) {
+                maybe_release_lod0_section_gpu_after_lod1_visible(chunk_it->second, 0);
+            }
+            continue;
+        }
+
+        if (mark.section_index >= 8) {
             continue;
         }
 
@@ -137,6 +166,63 @@ void StreamingTerrainSystem::release_far_gpu_meshes(GpuMeshPool& mesh_pool,
         }
         for (SectionMeshState& section_state : chunk_state.sections) {
             release_section_gpu(section_state, deferred_free, submit_snapshot_slot);
+        }
+        release_lod1_gpu(chunk_state.lod1, deferred_free, submit_snapshot_slot);
+    }
+}
+
+void StreamingTerrainSystem::release_lod1_gpu(ChunkLod1MeshState& lod1_state,
+                                              GpuDeferredFreeQueue& deferred_free,
+                                              const std::uint32_t submit_snapshot_slot) {
+    if (lod1_state.stale_opaque_gpu_slot_id != 0) {
+        deferred_free.enqueue_free(lod1_state.stale_opaque_gpu_slot_id, submit_snapshot_slot);
+        lod1_state.stale_opaque_gpu_slot_id = 0;
+        lod1_state.stale_opaque_draw_index_count = 0;
+    }
+    if (lod1_state.opaque_gpu_slot_id != 0) {
+        deferred_free.enqueue_free(lod1_state.opaque_gpu_slot_id, submit_snapshot_slot);
+        lod1_state.opaque_gpu_slot_id = 0;
+        lod1_state.opaque_gpu_allocated = false;
+        lod1_state.opaque_upload_queued = false;
+        lod1_state.opaque_gpu_uploaded = false;
+        lod1_state.opaque_draw_index_count = 0;
+    }
+}
+
+void StreamingTerrainSystem::maybe_release_lod0_section_gpu_after_lod1_visible(
+    ChunkMeshState& chunk_state, const std::uint32_t submit_snapshot_slot) {
+    (void)submit_snapshot_slot;
+    const ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+    if (!lod1_state.opaque_gpu_uploaded || lod1_state.opaque_draw_index_count == 0) {
+        return;
+    }
+
+    for (SectionMeshState& section_state : chunk_state.sections) {
+        if (section_state.stale_opaque_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.stale_opaque_gpu_slot_id);
+            section_state.stale_opaque_gpu_slot_id      = 0;
+            section_state.stale_opaque_draw_index_count = 0;
+        }
+        if (section_state.opaque_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.opaque_gpu_slot_id);
+            section_state.opaque_gpu_slot_id       = 0;
+            section_state.opaque_gpu_allocated     = false;
+            section_state.opaque_upload_queued   = false;
+            section_state.opaque_gpu_uploaded    = false;
+            section_state.opaque_draw_index_count = 0;
+        }
+        if (section_state.stale_water_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.stale_water_gpu_slot_id);
+            section_state.stale_water_gpu_slot_id      = 0;
+            section_state.stale_water_draw_index_count = 0;
+        }
+        if (section_state.water_gpu_slot_id != 0) {
+            pending_slot_frees_.push_back(section_state.water_gpu_slot_id);
+            section_state.water_gpu_slot_id       = 0;
+            section_state.water_gpu_allocated     = false;
+            section_state.water_upload_queued     = false;
+            section_state.water_gpu_uploaded      = false;
+            section_state.water_draw_index_count  = 0;
         }
     }
 }
@@ -244,6 +330,27 @@ void StreamingTerrainSystem::invalidate_chunk_mesh(const ChunkCoord coord) {
             section_state.water_gpu_slot_id = 0;
         }
     }
+
+    ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+    ++lod1_state.mesh_schedule_serial;
+    lod1_state.mesh_ready = false;
+    lod1_state.mesh_job_pending = false;
+    lod1_state.needs_remesh = false;
+    lod1_state.empty_skip = false;
+    lod1_state.opaque_gpu_allocated = false;
+    lod1_state.opaque_upload_queued = false;
+    lod1_state.opaque_gpu_uploaded = false;
+    lod1_state.opaque_draw_index_count = 0;
+    if (lod1_state.stale_opaque_gpu_slot_id != 0) {
+        pending_slot_frees_.push_back(lod1_state.stale_opaque_gpu_slot_id);
+        lod1_state.stale_opaque_gpu_slot_id = 0;
+        lod1_state.stale_opaque_draw_index_count = 0;
+    }
+    if (lod1_state.opaque_gpu_slot_id != 0) {
+        pending_slot_frees_.push_back(lod1_state.opaque_gpu_slot_id);
+        lod1_state.opaque_gpu_slot_id = 0;
+    }
+    chunk_state.active_lod = TerrainLodLevel::Lod0;
 }
 
 void StreamingTerrainSystem::soft_invalidate_chunk_mesh(const ChunkCoord coord) {
@@ -276,6 +383,17 @@ void StreamingTerrainSystem::soft_invalidate_chunk_mesh(const ChunkCoord coord) 
         // Intentionally leave mesh_ready, opaque_gpu_*, opaque_draw_index_count,
         // and the active GPU slot ids intact so the old mesh keeps rendering until
         // drain_mesh_completions replaces it with the freshly built one.
+    }
+
+    ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+    ++lod1_state.mesh_schedule_serial;
+    lod1_state.mesh_job_pending = false;
+    lod1_state.needs_remesh = true;
+    lod1_state.empty_skip = false;
+    if (lod1_state.stale_opaque_gpu_slot_id != 0 && lod1_state.opaque_draw_index_count > 0) {
+        pending_slot_frees_.push_back(lod1_state.stale_opaque_gpu_slot_id);
+        lod1_state.stale_opaque_gpu_slot_id = 0;
+        lod1_state.stale_opaque_draw_index_count = 0;
     }
 }
 
@@ -339,6 +457,39 @@ int StreamingTerrainSystem::count_pending_mesh_jobs() const {
         }
     }
     return pending;
+}
+
+int StreamingTerrainSystem::count_pending_lod1_mesh_jobs() const {
+    int pending = 0;
+    for (const auto& [coord, chunk_state] : chunk_meshes_) {
+        (void)coord;
+        if (chunk_state.lod1.mesh_job_pending) {
+            ++pending;
+        }
+    }
+    return pending;
+}
+
+TerrainLodLevel StreamingTerrainSystem::select_chunk_lod_for_coord(const ChunkCoord coord) const {
+    TerrainLodLevel prev = TerrainLodLevel::Lod0;
+    const auto        it   = chunk_meshes_.find(coord);
+    if (it != chunk_meshes_.end()) {
+        prev = it->second.active_lod;
+    }
+    return select_chunk_lod(chunk_horizontal_distance_sq(coord, focus_world_), prev, terrain_lod_config_);
+}
+
+TerrainLodLevel StreamingTerrainSystem::update_chunk_active_lod(ChunkMeshState& chunk_state,
+                                                                const ChunkCoord coord) const {
+    const TerrainLodLevel desired =
+        select_chunk_lod(chunk_horizontal_distance_sq(coord, focus_world_), chunk_state.active_lod,
+                         terrain_lod_config_);
+    chunk_state.active_lod = desired;
+    return desired;
+}
+
+float StreamingTerrainSystem::max_draw_distance_blocks() const {
+    return terrain_lod_config_.lod1_far_blocks;
 }
 
 bool StreamingTerrainSystem::section_fully_occluded(const ChunkCoord coord,
@@ -445,17 +596,87 @@ void StreamingTerrainSystem::schedule_section_mesh(const ChunkCoord coord, const
     // thread mutates it in update_streaming without a meshing barrier. Stale
     // completions for chunks that were unloaded meanwhile are dropped on the
     // main thread in drain_mesh_completions().
-    jobs_->run_meshing([this, coord, section_index, schedule_serial, section_snapshot]() {
-        MeshCompletion completion{
-            .coord = coord,
-            .section_index = section_index,
-            .schedule_serial = schedule_serial,
-        };
-        mesh_section(section_snapshot,
+        jobs_->run_meshing([this, coord, section_index, schedule_serial, section_snapshot]() {
+            MeshCompletion completion{
+                .coord = coord,
+                .section_index = section_index,
+                .schedule_serial = schedule_serial,
+            };
+            mesh_section(section_snapshot,
                      completion.opaque_vertices,
                      completion.opaque_indices,
                      completion.water_vertices,
                      completion.water_indices);
+
+        std::lock_guard lock(completion_mutex_);
+        completions_.push_back(std::move(completion));
+    });
+}
+
+void StreamingTerrainSystem::mark_lod1_mesh_skipped(ChunkLod1MeshState& lod1_state) {
+    lod1_state.mesh_ready              = true;
+    lod1_state.mesh_job_pending        = false;
+    lod1_state.needs_remesh            = false;
+    lod1_state.empty_skip              = true;
+    lod1_state.opaque_vertices.clear();
+    lod1_state.opaque_indices.clear();
+    lod1_state.opaque_index_count      = 0;
+    lod1_state.opaque_draw_index_count = 0;
+}
+
+void StreamingTerrainSystem::schedule_chunk_lod1_mesh(const ChunkCoord coord) {
+    if (store_ == nullptr || jobs_ == nullptr) {
+        return;
+    }
+
+    if (count_pending_lod1_mesh_jobs() >= kMaxPendingLod1MeshJobs) {
+        return;
+    }
+
+    const Chunk* chunk = store_->try_get(coord);
+    if (chunk == nullptr || store_->is_pending_unload(coord)) {
+        return;
+    }
+
+    if (!chunk_within_mesh_radius(coord)) {
+        return;
+    }
+
+    if (chunk_force_lod0_water_border(*store_, coord)) {
+        return;
+    }
+    if (chunk_requires_lod0_streaming_edge(*store_, coord)) {
+        return;
+    }
+
+    ChunkMeshState& chunk_state = chunk_meshes_[coord];
+    chunk_state.coord           = coord;
+    const TerrainLodLevel desired = update_chunk_active_lod(chunk_state, coord);
+    if (desired != TerrainLodLevel::Lod1) {
+        return;
+    }
+
+    ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+    if (lod1_state.mesh_job_pending) {
+        return;
+    }
+    if (lod1_state.mesh_ready && !lod1_state.needs_remesh) {
+        return;
+    }
+
+    lod1_state.empty_skip        = false;
+    lod1_state.mesh_job_pending  = true;
+    lod1_state.needs_remesh      = false;
+    const std::uint32_t schedule_serial = lod1_state.mesh_schedule_serial;
+    const Chunk         chunk_snapshot  = *chunk;
+
+    jobs_->run_meshing([this, coord, schedule_serial, chunk_snapshot]() {
+        MeshCompletion completion{
+            .coord = coord,
+            .schedule_serial = schedule_serial,
+            .lod1 = true,
+        };
+        mesh_chunk_lod1(chunk_snapshot, completion.opaque_vertices, completion.opaque_indices);
 
         std::lock_guard lock(completion_mutex_);
         completions_.push_back(std::move(completion));
@@ -476,6 +697,51 @@ void StreamingTerrainSystem::drain_mesh_completions() {
 
         ChunkMeshState& chunk_state = chunk_meshes_[completion.coord];
         chunk_state.coord = completion.coord;
+
+        if (completion.lod1) {
+            ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+            if (lod1_state.mesh_schedule_serial != completion.schedule_serial) {
+                lod1_state.mesh_job_pending = false;
+                continue;
+            }
+
+            lod1_state.opaque_vertices = std::move(completion.opaque_vertices);
+            lod1_state.opaque_indices  = std::move(completion.opaque_indices);
+            lod1_state.opaque_index_count =
+                static_cast<std::uint32_t>(lod1_state.opaque_indices.size());
+            lod1_state.mesh_ready       = true;
+            lod1_state.mesh_job_pending = false;
+            lod1_state.needs_remesh     = false;
+            if (lod1_state.opaque_indices.empty()) {
+                lod1_state.empty_skip = true;
+                continue;
+            }
+            lod1_state.empty_skip = false;
+
+            if (lod1_state.opaque_gpu_slot_id != 0) {
+                const std::uint32_t draw_count = lod1_state.opaque_draw_index_count;
+                if (draw_count > 0) {
+                    if (lod1_state.stale_opaque_gpu_slot_id != 0) {
+                        pending_slot_frees_.push_back(lod1_state.stale_opaque_gpu_slot_id);
+                    }
+                    lod1_state.stale_opaque_gpu_slot_id       = lod1_state.opaque_gpu_slot_id;
+                    lod1_state.stale_opaque_draw_index_count  = draw_count;
+                    lod1_state.opaque_gpu_slot_id             = 0;
+                } else if (lod1_state.stale_opaque_gpu_slot_id != 0) {
+                    pending_slot_frees_.push_back(lod1_state.opaque_gpu_slot_id);
+                    lod1_state.opaque_gpu_slot_id = 0;
+                } else {
+                    pending_slot_frees_.push_back(lod1_state.opaque_gpu_slot_id);
+                    lod1_state.opaque_gpu_slot_id = 0;
+                }
+            }
+            lod1_state.opaque_gpu_allocated = false;
+            lod1_state.opaque_upload_queued = false;
+            lod1_state.opaque_gpu_uploaded  = false;
+            lod1_state.opaque_draw_index_count = 0;
+            continue;
+        }
+
         SectionMeshState& section_state = chunk_state.sections[completion.section_index];
         if (section_state.mesh_schedule_serial != completion.schedule_serial) {
             section_state.mesh_job_pending = false;
@@ -577,6 +843,7 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool,
         ChunkCoord coord{};
         std::uint8_t section_index = 0;
         bool water = false;
+        bool lod1 = false;
         float distance_sq = 0.f;
     };
 
@@ -601,14 +868,26 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool,
             if (!section_state.opaque_gpu_allocated && !section_state.opaque_vertices.empty() &&
                 !section_state.opaque_indices.empty()) {
                 candidates.push_back(
-                    GpuAllocCandidate{coord, section_state.section_index, false, section_dist});
+                    GpuAllocCandidate{coord, section_state.section_index, false, false, section_dist});
             }
 
             if (!section_state.water_gpu_allocated && !section_state.water_vertices.empty() &&
                 !section_state.water_indices.empty()) {
                 candidates.push_back(
-                    GpuAllocCandidate{coord, section_state.section_index, true, section_dist});
+                    GpuAllocCandidate{coord, section_state.section_index, true, false, section_dist});
             }
+        }
+
+        ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+        if (!lod1_state.empty_skip && lod1_state.mesh_ready && !lod1_state.opaque_gpu_allocated &&
+            !lod1_state.opaque_vertices.empty() && !lod1_state.opaque_indices.empty()) {
+            candidates.push_back(GpuAllocCandidate{
+                coord,
+                0,
+                false,
+                true,
+                chunk_horizontal_distance_sq(coord, focus_world_),
+            });
         }
     }
 
@@ -623,6 +902,24 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool,
         }
 
         ChunkMeshState& chunk_state = chunk_meshes_[candidate.coord];
+
+        if (candidate.lod1) {
+            ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+            const std::size_t   vertex_bytes =
+                lod1_state.opaque_vertices.size() * sizeof(TerrainVertex);
+            const std::size_t index_bytes =
+                lod1_state.opaque_indices.size() * sizeof(std::uint32_t);
+            const std::uint32_t slot_id = mesh_pool.allocate(vertex_bytes, index_bytes);
+            if (slot_id != 0) {
+                lod1_state.opaque_gpu_slot_id     = slot_id;
+                lod1_state.opaque_gpu_allocated   = true;
+                lod1_state.opaque_gpu_uploaded    = false;
+                lod1_state.opaque_draw_index_count = 0;
+                ++allocated_this_frame;
+            }
+            continue;
+        }
+
         SectionMeshState& section_state = chunk_state.sections[candidate.section_index];
         bool slots_changed = false;
 
@@ -669,6 +966,9 @@ void StreamingTerrainSystem::reset_pending_upload_flags() {
                 section_state.water_upload_queued = false;
             }
         }
+        if (!chunk_state.lod1.opaque_gpu_uploaded) {
+            chunk_state.lod1.opaque_upload_queued = false;
+        }
     }
 }
 
@@ -693,6 +993,7 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue, GpuMes
         ChunkCoord coord{};
         std::uint8_t section_index = 0;
         bool water = false;
+        bool lod1 = false;
         float distance_sq = 0.f;
     };
 
@@ -713,15 +1014,28 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue, GpuMes
                 !section_state.opaque_gpu_uploaded && section_state.opaque_gpu_slot_id != 0 &&
                 !section_state.opaque_vertices.empty()) {
                 candidates.push_back(
-                    UploadCandidate{coord, section_state.section_index, false, section_dist});
+                    UploadCandidate{coord, section_state.section_index, false, false, section_dist});
             }
 
             if (section_state.water_gpu_allocated && !section_state.water_upload_queued &&
                 !section_state.water_gpu_uploaded && section_state.water_gpu_slot_id != 0 &&
                 !section_state.water_vertices.empty()) {
                 candidates.push_back(
-                    UploadCandidate{coord, section_state.section_index, true, section_dist});
+                    UploadCandidate{coord, section_state.section_index, true, false, section_dist});
             }
+        }
+
+        ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+        if (!lod1_state.empty_skip && lod1_state.opaque_gpu_allocated && !lod1_state.opaque_upload_queued &&
+            !lod1_state.opaque_gpu_uploaded && lod1_state.opaque_gpu_slot_id != 0 &&
+            !lod1_state.opaque_vertices.empty()) {
+            candidates.push_back(UploadCandidate{
+                coord,
+                0,
+                false,
+                true,
+                chunk_horizontal_distance_sq(coord, focus_world_),
+            });
         }
     }
 
@@ -736,6 +1050,39 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue, GpuMes
         }
 
         ChunkMeshState& chunk_state = chunk_meshes_[candidate.coord];
+
+        if (candidate.lod1) {
+            ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+            const std::size_t   vertex_bytes =
+                lod1_state.opaque_vertices.size() * sizeof(TerrainVertex);
+            const std::size_t index_bytes =
+                lod1_state.opaque_indices.size() * sizeof(std::uint32_t);
+            const GpuMeshSlot* slot = mesh_pool.slot(lod1_state.opaque_gpu_slot_id);
+            if (slot == nullptr || vertex_bytes > slot->vertex_capacity ||
+                index_bytes > slot->index_capacity) {
+                if (lod1_state.opaque_gpu_slot_id != 0) {
+                    pending_slot_frees_.push_back(lod1_state.opaque_gpu_slot_id);
+                }
+                lod1_state.opaque_gpu_slot_id   = 0;
+                lod1_state.opaque_gpu_allocated = false;
+                lod1_state.opaque_upload_queued = false;
+                lod1_state.opaque_gpu_uploaded  = false;
+                lod1_state.opaque_draw_index_count = 0;
+                continue;
+            }
+
+            upload_queue.enqueue(MeshUploadRequest{
+                .coord = candidate.coord,
+                .slot_id = lod1_state.opaque_gpu_slot_id,
+                .lod1 = true,
+                .vertices = lod1_state.opaque_vertices,
+                .indices = lod1_state.opaque_indices,
+            });
+            lod1_state.opaque_upload_queued = true;
+            ++queued_this_frame;
+            continue;
+        }
+
         SectionMeshState& section_state = chunk_state.sections[candidate.section_index];
 
         if (!candidate.water) {
@@ -907,6 +1254,7 @@ void StreamingTerrainSystem::sync_mesh_workers() {
         jobs_->wait_meshing();
     }
     drain_mesh_completions();
+    process_lod1_mesh_backlog();
 }
 
 void StreamingTerrainSystem::reset_gpu_after_device_lost() {
@@ -925,6 +1273,14 @@ void StreamingTerrainSystem::reset_gpu_after_device_lost() {
             section_state.opaque_draw_index_count = 0;
             section_state.water_draw_index_count = 0;
         }
+        ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+        lod1_state.opaque_gpu_slot_id       = 0;
+        lod1_state.opaque_gpu_allocated     = false;
+        lod1_state.opaque_upload_queued     = false;
+        lod1_state.opaque_gpu_uploaded      = false;
+        lod1_state.opaque_draw_index_count  = 0;
+        lod1_state.stale_opaque_gpu_slot_id = 0;
+        lod1_state.stale_opaque_draw_index_count = 0;
     }
 }
 
@@ -1005,6 +1361,7 @@ void StreamingTerrainSystem::warmup_meshes_near_focus(
     JobSystem& jobs, const glm::vec3& focus_world, const std::size_t min_sections) {
     focus_world_ = focus_world;
     process_mesh_backlog();
+    process_lod1_mesh_backlog();
 
     for (int attempt = 0; attempt < 80 && count_mesh_ready_sections() < min_sections; ++attempt) {
         jobs.wait_meshing();
@@ -1080,6 +1437,68 @@ void StreamingTerrainSystem::process_mesh_backlog() {
     }
 }
 
+void StreamingTerrainSystem::process_lod1_mesh_backlog() {
+    if (store_ == nullptr || jobs_ == nullptr) {
+        return;
+    }
+
+    if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
+        return;
+    }
+
+    struct Lod1BacklogEntry {
+        ChunkCoord coord{};
+        float      distance_sq = 0.f;
+        bool       needs_remesh = false;
+    };
+
+    std::vector<Lod1BacklogEntry> backlog;
+    store_->for_each_loaded([&](const ChunkCoord coord) {
+        if (store_->is_pending_unload(coord) || !chunk_within_mesh_radius(coord)) {
+            return;
+        }
+        if (chunk_force_lod0_water_border(*store_, coord)) {
+            return;
+        }
+        if (chunk_requires_lod0_streaming_edge(*store_, coord)) {
+            return;
+        }
+
+        ChunkMeshState& chunk_state = chunk_meshes_[coord];
+        chunk_state.coord           = coord;
+        if (update_chunk_active_lod(chunk_state, coord) != TerrainLodLevel::Lod1) {
+            return;
+        }
+
+        const ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+        if (lod1_state.mesh_ready || lod1_state.mesh_job_pending) {
+            return;
+        }
+        backlog.push_back(Lod1BacklogEntry{
+            coord,
+            chunk_horizontal_distance_sq(coord, focus_world_),
+            lod1_state.needs_remesh,
+        });
+    });
+
+    std::sort(backlog.begin(), backlog.end(), [](const Lod1BacklogEntry& a, const Lod1BacklogEntry& b) {
+        if (a.distance_sq != b.distance_sq) {
+            return a.distance_sq < b.distance_sq;
+        }
+        return a.needs_remesh > b.needs_remesh;
+    });
+
+    for (const Lod1BacklogEntry& entry : backlog) {
+        if (count_pending_lod1_mesh_jobs() >= kMaxPendingLod1MeshJobs) {
+            break;
+        }
+        if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
+            break;
+        }
+        schedule_chunk_lod1_mesh(entry.coord);
+    }
+}
+
 void StreamingTerrainSystem::on_frame(const glm::vec3& focus_world,
                                       const std::uint32_t submit_snapshot_slot,
                                       GpuMeshPool& mesh_pool,
@@ -1088,6 +1507,7 @@ void StreamingTerrainSystem::on_frame(const glm::vec3& focus_world,
     focus_world_ = focus_world;
     drain_mesh_completions();
     process_mesh_backlog();
+    process_lod1_mesh_backlog();
     for (const std::uint32_t slot_id : pending_slot_frees_) {
         deferred_free.enqueue_free(slot_id, submit_snapshot_slot);
     }
@@ -1099,6 +1519,154 @@ void StreamingTerrainSystem::on_frame(const glm::vec3& focus_world,
     queue_uploads(upload_queue, mesh_pool);
 }
 
+void StreamingTerrainSystem::append_lod0_opaque_draws(
+    const ChunkCoord coord,
+    const ChunkMeshState& chunk_state,
+    const glm::vec3& chunk_origin_world,
+    const glm::vec3& render_origin,
+    const std::array<glm::vec4, 6>& frustum_planes,
+    const GpuMeshPool& mesh_pool,
+    std::uint32_t& opaque_indirect_index) {
+    const float max_draw_dist_sq = max_draw_distance_blocks() * max_draw_distance_blocks();
+
+    for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
+        if (opaque_indirect_index >= kMaxOpaqueDrawSections) {
+            return;
+        }
+
+        const SectionMeshState& section_state = chunk_state.sections[section_index];
+        if (section_state.empty_skip || section_state.occluded_skip) {
+            continue;
+        }
+
+        const glm::ivec3 section_coord = section_coord_from_index(section_index);
+        const glm::vec3  section_offset = glm::vec3(section_coord) * 16.f;
+        const glm::vec3  model_translation = chunk_origin_world + section_offset - render_origin;
+        const glm::vec3  cull_min          = model_translation;
+        const glm::vec3  cull_max          = model_translation + glm::vec3(16.f);
+
+        const glm::vec3 section_center_world =
+            chunk_origin_world + section_offset + glm::vec3(8.f);
+        const glm::vec3 delta = section_center_world - focus_world_;
+        if (glm::dot(delta, delta) > max_draw_dist_sq) {
+            continue;
+        }
+
+        if (!aabb_intersects_frustum(frustum_planes, cull_min, cull_max)) {
+            continue;
+        }
+
+        if (section_state.mesh_ready && section_state.opaque_gpu_allocated &&
+            section_state.opaque_gpu_uploaded && section_state.opaque_draw_index_count > 0 &&
+            mesh_pool.is_live(section_state.opaque_gpu_slot_id)) {
+            culled_opaque_sections_.push_back(DrawSection{
+                .coord = coord,
+                .section_index = section_index,
+                .model_translation = model_translation,
+                .indirect_index = opaque_indirect_index++,
+                .vertex_buffer_id = section_state.opaque_gpu_slot_id,
+                .index_buffer_id = section_state.opaque_gpu_slot_id,
+                .index_count = section_state.opaque_draw_index_count,
+                .cull_min = cull_min,
+                .cull_max = cull_max,
+                .lod_level = TerrainLodLevel::Lod0,
+                .vertex_scale = 1.f,
+            });
+        } else if (section_state.stale_opaque_gpu_slot_id != 0 &&
+                   section_state.stale_opaque_draw_index_count > 0 &&
+                   mesh_pool.is_live(section_state.stale_opaque_gpu_slot_id)) {
+            culled_opaque_sections_.push_back(DrawSection{
+                .coord = coord,
+                .section_index = section_index,
+                .model_translation = model_translation,
+                .indirect_index = opaque_indirect_index++,
+                .vertex_buffer_id = section_state.stale_opaque_gpu_slot_id,
+                .index_buffer_id = section_state.stale_opaque_gpu_slot_id,
+                .index_count = section_state.stale_opaque_draw_index_count,
+                .cull_min = cull_min,
+                .cull_max = cull_max,
+                .lod_level = TerrainLodLevel::Lod0,
+                .vertex_scale = 1.f,
+            });
+        }
+    }
+}
+
+void StreamingTerrainSystem::append_lod0_water_draws(
+    const ChunkCoord coord,
+    const ChunkMeshState& chunk_state,
+    const glm::vec3& chunk_origin_world,
+    const glm::vec3& render_origin,
+    const std::array<glm::vec4, 6>& frustum_planes,
+    const GpuMeshPool& mesh_pool,
+    std::uint32_t& water_indirect_index,
+    const std::uint32_t opaque_indirect_index) {
+    const float max_draw_dist_sq = max_draw_distance_blocks() * max_draw_distance_blocks();
+
+    for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
+        if (water_indirect_index >= kMaxWaterDrawSections ||
+            opaque_indirect_index + water_indirect_index >= kMaxTotalIndirectDraws) {
+            return;
+        }
+
+        const SectionMeshState& section_state = chunk_state.sections[section_index];
+        if (section_state.empty_skip || section_state.occluded_skip) {
+            continue;
+        }
+
+        const glm::ivec3 section_coord = section_coord_from_index(section_index);
+        const glm::vec3  section_offset = glm::vec3(section_coord) * 16.f;
+        const glm::vec3  model_translation = chunk_origin_world + section_offset - render_origin;
+        const glm::vec3  cull_min          = model_translation;
+        const glm::vec3  cull_max          = model_translation + glm::vec3(16.f);
+
+        const glm::vec3 section_center_world =
+            chunk_origin_world + section_offset + glm::vec3(8.f);
+        const glm::vec3 delta = section_center_world - focus_world_;
+        if (glm::dot(delta, delta) > max_draw_dist_sq) {
+            continue;
+        }
+
+        if (!aabb_intersects_frustum(frustum_planes, cull_min, cull_max)) {
+            continue;
+        }
+
+        if (section_state.mesh_ready && section_state.water_gpu_allocated &&
+            section_state.water_gpu_uploaded && section_state.water_draw_index_count > 0 &&
+            mesh_pool.is_live(section_state.water_gpu_slot_id)) {
+            culled_water_sections_.push_back(DrawSection{
+                .coord = coord,
+                .section_index = section_index,
+                .model_translation = model_translation,
+                .indirect_index = water_indirect_index++,
+                .vertex_buffer_id = section_state.water_gpu_slot_id,
+                .index_buffer_id = section_state.water_gpu_slot_id,
+                .index_count = section_state.water_draw_index_count,
+                .cull_min = cull_min,
+                .cull_max = cull_max,
+                .lod_level = TerrainLodLevel::Lod0,
+                .vertex_scale = 1.f,
+            });
+        } else if (section_state.stale_water_gpu_slot_id != 0 &&
+                   section_state.stale_water_draw_index_count > 0 &&
+                   mesh_pool.is_live(section_state.stale_water_gpu_slot_id)) {
+            culled_water_sections_.push_back(DrawSection{
+                .coord = coord,
+                .section_index = section_index,
+                .model_translation = model_translation,
+                .indirect_index = water_indirect_index++,
+                .vertex_buffer_id = section_state.stale_water_gpu_slot_id,
+                .index_buffer_id = section_state.stale_water_gpu_slot_id,
+                .index_count = section_state.stale_water_draw_index_count,
+                .cull_min = cull_min,
+                .cull_max = cull_max,
+                .lod_level = TerrainLodLevel::Lod0,
+                .vertex_scale = 1.f,
+            });
+        }
+    }
+}
+
 void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                                             const glm::vec3& render_origin,
                                             ChunkStore& store,
@@ -1107,12 +1675,17 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
     snapshot.water_sections.clear();
     culled_opaque_sections_.clear();
     culled_water_sections_.clear();
+    lod1_draw_chunks_         = 0;
+    water_border_lod0_forced_ = 0;
 
     const glm::mat4 view_proj = snapshot.proj * snapshot.view;
     const std::array<glm::vec4, 6> frustum_planes = frustum_planes_from_matrix(view_proj);
 
     std::uint32_t opaque_indirect_index = 0;
-    std::uint32_t water_indirect_index = 0;
+    std::uint32_t water_indirect_index  = 0;
+    std::uint32_t lod1_drawn            = 0;
+
+    const float max_draw_dist_sq = max_draw_distance_blocks() * max_draw_distance_blocks();
 
     store.for_each_loaded([&](const ChunkCoord coord) {
         if (store.is_pending_unload(coord)) {
@@ -1121,108 +1694,121 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
         if (!chunk_within_mesh_radius(coord)) {
             return;
         }
-        if (opaque_indirect_index >= kMaxOpaqueDrawSections) {
-            return;
-        }
 
         const auto chunk_it = chunk_meshes_.find(coord);
         if (chunk_it == chunk_meshes_.end()) {
             return;
         }
 
-        const ChunkMeshState& chunk_state = chunk_it->second;
+        ChunkMeshState& chunk_state     = chunk_it->second;
         const glm::vec3 chunk_origin_world = glm::vec3(coord) * 32.f;
+        const glm::vec3 chunk_center_world =
+            chunk_origin_world + glm::vec3(16.f);
+        const glm::vec3 chunk_delta = chunk_center_world - focus_world_;
+        if (glm::dot(chunk_delta, chunk_delta) > max_draw_dist_sq) {
+            return;
+        }
 
-        for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
-            const SectionMeshState& section_state = chunk_state.sections[section_index];
-            if (section_state.empty_skip || section_state.occluded_skip) {
-                continue;
+        const TerrainLodLevel desired_lod = update_chunk_active_lod(chunk_state, coord);
+        const bool force_water_border     = chunk_force_lod0_water_border(store, coord);
+        const bool force_streaming_edge   = chunk_requires_lod0_streaming_edge(store, coord);
+        if (force_water_border) {
+            ++water_border_lod0_forced_;
+        }
+
+        if (desired_lod == TerrainLodLevel::Lod1 && !force_water_border && !force_streaming_edge) {
+            schedule_chunk_lod1_mesh(coord);
+        }
+
+        const ChunkLod1MeshState& lod1_state = chunk_state.lod1;
+        const bool lod1_drawable =
+            !lod1_state.empty_skip && lod1_state.mesh_ready && lod1_state.opaque_gpu_allocated &&
+            lod1_state.opaque_gpu_uploaded && lod1_state.opaque_draw_index_count > 0 &&
+            mesh_pool.is_live(lod1_state.opaque_gpu_slot_id);
+        const bool lod1_stale_drawable =
+            !lod1_state.empty_skip && lod1_state.stale_opaque_gpu_slot_id != 0 &&
+            lod1_state.stale_opaque_draw_index_count > 0 &&
+            mesh_pool.is_live(lod1_state.stale_opaque_gpu_slot_id);
+
+        auto emit_lod1_opaque = [&]() -> bool {
+            if (lod1_drawn >= static_cast<std::uint32_t>(kMaxLod1DrawChunks) ||
+                opaque_indirect_index >= static_cast<std::uint32_t>(kMaxOpaqueDrawSections)) {
+                return false;
             }
-            const glm::ivec3 section_coord = section_coord_from_index(section_index);
-            const glm::vec3 section_offset = glm::vec3(section_coord) * 16.f;
-            const glm::vec3 model_translation = chunk_origin_world + section_offset - render_origin;
-            const glm::vec3 cull_min = model_translation;
-            const glm::vec3 cull_max = model_translation + glm::vec3(16.f);
-
-            const glm::vec3 section_center_world = chunk_origin_world + section_offset + glm::vec3(8.f);
-            const glm::vec3 delta = section_center_world - focus_world_;
-            constexpr float kMaxDrawDistance = 384.f;
-            if (glm::dot(delta, delta) > kMaxDrawDistance * kMaxDrawDistance) {
-                continue;
-            }
-
+            const glm::vec3 model_translation = chunk_origin_world - render_origin;
+            const glm::vec3 cull_min          = model_translation;
+            const glm::vec3 cull_max          = model_translation + glm::vec3(32.f);
             if (!aabb_intersects_frustum(frustum_planes, cull_min, cull_max)) {
-                continue;
+                return false;
             }
-
-            // Prefer the uploaded new mesh; fall back to the stale slot while the
-            // new upload is in flight so the section never goes invisible.
-            if (section_state.mesh_ready && section_state.opaque_gpu_allocated &&
-                section_state.opaque_gpu_uploaded && section_state.opaque_draw_index_count > 0 &&
-                mesh_pool.is_live(section_state.opaque_gpu_slot_id)) {
+            if (lod1_drawable) {
                 culled_opaque_sections_.push_back(DrawSection{
                     .coord = coord,
-                    .section_index = section_index,
                     .model_translation = model_translation,
                     .indirect_index = opaque_indirect_index++,
-                    .vertex_buffer_id = section_state.opaque_gpu_slot_id,
-                    .index_buffer_id = section_state.opaque_gpu_slot_id,
-                    .index_count = section_state.opaque_draw_index_count,
+                    .vertex_buffer_id = lod1_state.opaque_gpu_slot_id,
+                    .index_buffer_id = lod1_state.opaque_gpu_slot_id,
+                    .index_count = lod1_state.opaque_draw_index_count,
                     .cull_min = cull_min,
                     .cull_max = cull_max,
+                    .lod_level = TerrainLodLevel::Lod1,
+                    .vertex_scale = 2.f,
                 });
-            } else if (section_state.stale_opaque_gpu_slot_id != 0 &&
-                       section_state.stale_opaque_draw_index_count > 0 &&
-                       mesh_pool.is_live(section_state.stale_opaque_gpu_slot_id)) {
+            } else if (lod1_stale_drawable) {
                 culled_opaque_sections_.push_back(DrawSection{
                     .coord = coord,
-                    .section_index = section_index,
                     .model_translation = model_translation,
                     .indirect_index = opaque_indirect_index++,
-                    .vertex_buffer_id = section_state.stale_opaque_gpu_slot_id,
-                    .index_buffer_id = section_state.stale_opaque_gpu_slot_id,
-                    .index_count = section_state.stale_opaque_draw_index_count,
+                    .vertex_buffer_id = lod1_state.stale_opaque_gpu_slot_id,
+                    .index_buffer_id = lod1_state.stale_opaque_gpu_slot_id,
+                    .index_count = lod1_state.stale_opaque_draw_index_count,
                     .cull_min = cull_min,
                     .cull_max = cull_max,
+                    .lod_level = TerrainLodLevel::Lod1,
+                    .vertex_scale = 2.f,
                 });
+            } else {
+                return false;
             }
+            ++lod1_drawn;
+            return true;
+        };
 
-            if (water_indirect_index >= kMaxWaterDrawSections ||
-                opaque_indirect_index + water_indirect_index >= kMaxTotalIndirectDraws) {
-                continue;
-            }
-
-            if (section_state.mesh_ready && section_state.water_gpu_allocated &&
-                section_state.water_gpu_uploaded && section_state.water_draw_index_count > 0 &&
-                mesh_pool.is_live(section_state.water_gpu_slot_id)) {
-                culled_water_sections_.push_back(DrawSection{
-                    .coord = coord,
-                    .section_index = section_index,
-                    .model_translation = model_translation,
-                    .indirect_index = water_indirect_index++,
-                    .vertex_buffer_id = section_state.water_gpu_slot_id,
-                    .index_buffer_id = section_state.water_gpu_slot_id,
-                    .index_count = section_state.water_draw_index_count,
-                    .cull_min = cull_min,
-                    .cull_max = cull_max,
-                });
-            } else if (section_state.stale_water_gpu_slot_id != 0 &&
-                       section_state.stale_water_draw_index_count > 0 &&
-                       mesh_pool.is_live(section_state.stale_water_gpu_slot_id)) {
-                culled_water_sections_.push_back(DrawSection{
-                    .coord = coord,
-                    .section_index = section_index,
-                    .model_translation = model_translation,
-                    .indirect_index = water_indirect_index++,
-                    .vertex_buffer_id = section_state.stale_water_gpu_slot_id,
-                    .index_buffer_id = section_state.stale_water_gpu_slot_id,
-                    .index_count = section_state.stale_water_draw_index_count,
-                    .cull_min = cull_min,
-                    .cull_max = cull_max,
-                });
+        if (force_water_border || force_streaming_edge) {
+            append_lod0_opaque_draws(coord,
+                                    chunk_state,
+                                    chunk_origin_world,
+                                    render_origin,
+                                    frustum_planes,
+                                    mesh_pool,
+                                    opaque_indirect_index);
+        } else if (desired_lod == TerrainLodLevel::Lod1 && lod1_drawable) {
+            emit_lod1_opaque();
+        } else {
+            const std::size_t opaque_before = culled_opaque_sections_.size();
+            append_lod0_opaque_draws(coord,
+                                    chunk_state,
+                                    chunk_origin_world,
+                                    render_origin,
+                                    frustum_planes,
+                                    mesh_pool,
+                                    opaque_indirect_index);
+            if (culled_opaque_sections_.size() == opaque_before) {
+                emit_lod1_opaque();
             }
         }
+
+        append_lod0_water_draws(coord,
+                                chunk_state,
+                                chunk_origin_world,
+                                render_origin,
+                                frustum_planes,
+                                mesh_pool,
+                                water_indirect_index,
+                                opaque_indirect_index);
     });
+
+    lod1_draw_chunks_ = lod1_drawn;
 
     std::sort(culled_water_sections_.begin(),
               culled_water_sections_.end(),

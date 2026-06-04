@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform FrameUniform {
 
 layout(push_constant) uniform Push {
     vec3 model_translation;
+    float vertex_scale;
 } push;
 
 layout(location = 0) flat out uint v_material;
@@ -23,7 +24,7 @@ void main() {
     const float x = float(packed & 31u);
     const float y = float((packed >> 5u) & 31u);
     const float z = float((packed >> 10u) & 31u);
-    const vec3 world = push.model_translation + vec3(x, y, z);
+    const vec3 world = push.model_translation + vec3(x, y, z) * push.vertex_scale;
     gl_Position = frame.proj * frame.view * vec4(world, 1.0);
     v_material = in_material;
     v_light_levels = vec2(float(in_light >> 4u) / 15.0, float(in_light & 15u) / 15.0);

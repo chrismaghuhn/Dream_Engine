@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/core/math.hpp"
+#include "engine/world/TerrainLod.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -19,6 +20,8 @@ struct DrawSection {
     std::uint32_t index_count = 0;
     glm::vec3 cull_min{0.f};
     glm::vec3 cull_max{0.f};
+    TerrainLodLevel lod_level = TerrainLodLevel::Lod0;
+    float vertex_scale = 1.f;
 };
 
 struct WorldRenderSnapshot {

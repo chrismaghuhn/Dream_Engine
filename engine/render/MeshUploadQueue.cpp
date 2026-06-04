@@ -247,6 +247,7 @@ void MeshUploadQueue::flush(VkCommandBuffer command_buffer,
             .section_index = request.section_index,
             .slot_id = request.slot_id,
             .water = request.water,
+            .lod1 = request.lod1,
         });
         ready_copies_.push_back(PendingCopy{
             .slot_id = request.slot_id,

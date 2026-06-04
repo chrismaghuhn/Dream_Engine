@@ -473,6 +473,7 @@ void TerrainPass::record(VkCommandBuffer command_buffer,
 
         const DrawPushConstants push{
             .model_translation = section.model_translation,
+            .vertex_scale = section.vertex_scale,
         };
         vkCmdPushConstants(command_buffer,
                            pipeline_layout_,

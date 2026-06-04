@@ -24,7 +24,7 @@ public:
 
     struct DrawPushConstants {
         glm::vec3 model_translation{0.f};
-        float pad = 0.f;
+        float vertex_scale = 1.f;
     };
 
     TerrainPass() = default;
