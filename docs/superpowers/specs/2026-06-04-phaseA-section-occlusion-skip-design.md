@@ -75,14 +75,16 @@ bool section_fully_occluded(coord, section_index):
 
 ### Scheduling
 `StreamingTerrainSystem::schedule_section_mesh`:
+- Liest nur `section.render_meta` (kein `recompute_render_meta()` im Schedule-Pfad).
 - Vor dem Job-Dispatch: wenn `is_empty` **oder** `section_fully_occluded(...)` → **kein** Mesh-Job. Section-State als „mesh_ready, 0 Geometrie" markieren (`opaque_draw_index_count=0`, `water_draw_index_count=0`), damit `build_snapshot` sie wie bisher überspringt.
-- Flag `occluded_skip=true` im `SectionMeshState` setzen (für Zähler + spätere Re-Eval).
+- Getrennte Flags: `empty_skip` vs `occluded_skip` (ImGui-Zähler).
 
 ### build_snapshot
 - Keine Logikänderung nötig (0-Index-Sections werden bereits übersprungen). Optional: frühes `continue` bei `occluded_skip`, spart die GPU-Slot-Liveness-Checks.
 
 ### Invalidierung (Korrektheit)
-- **Block-Break/-Place** in Section S: S wird ohnehin neu gemesht → `recompute_render_meta()` für S → zusätzlich die **6 Nachbarn neu bewerten** (`section_fully_occluded` neu): ein vorher vergrabener Nachbar kann jetzt freiliegen und muss (neu) gemesht werden. Hängt sich an den bestehenden Naht-/Soft-Invalidate-Pfad (`heal_seams_after_chunk_loads` / Nachbar-Remesh).
+- **Block-Break/-Place:** `recompute_render_meta()` in der mutierten Section (`write_block` / sync). `ChunkDirty` auf dem **mutierenden Chunk** (deckt intra-chunk Section-Nachbarn ab). Zusätzlich `ChunkDirty` nur auf **anderen Chunks**, wenn die Mutation an einer Section-Face liegt, deren Nachbar über `neighbor_chunk_and_section` in einem fremden Chunk liegt (Ecken: alle betroffenen Faces prüfen).
+- Vorher vergrabene Section kann nach Nachbar-Break freiliegen → Remesh über obigen Dirty-Pfad.
 - **Nachbar-Unload:** fehlender Nachbar ⇒ Regel rendert konservativ ⇒ kein Loch.
 - **Nachbar-Load:** beim Seam-Heal kann eine jetzt vergrabene Section ihren Mesh droppen (Optimierung). Optional; Korrektheit hat Vorrang — meshen ist nie falsch, nur suboptimal.
 
@@ -99,7 +101,7 @@ In `tests/render/` bzw. `tests/world/`:
 
 ## A6. Observability
 
-- `StreamingTerrainSystem::count_occluded_sections()` (Sections mit `occluded_skip`), im ImGui-Overlay neben `count_mesh_ready_sections()` anzeigen, um den Gewinn zu verifizieren.
+- `count_empty_skip_sections()` und `count_occluded_skip_sections()` getrennt im ImGui-Overlay (neben `count_mesh_ready_sections()`).
 
 ## A7. Nicht-Ziele (bewusst ausgeklammert)
 

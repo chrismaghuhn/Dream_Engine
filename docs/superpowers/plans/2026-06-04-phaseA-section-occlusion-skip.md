@@ -4,13 +4,17 @@
 
 **Goal:** Skip mesh jobs for empty or fully buried opaque sections while storing reusable `SectionRenderMeta` per section, conservatively correct at streaming borders.
 
-**Architecture:** `Section::recompute_render_meta()` runs whenever occupancy is synced. `StreamingTerrainSystem::schedule_section_mesh` checks `is_empty` or `section_fully_occluded()` (cross-chunk via `neighbor_section`) and marks the section mesh-ready with zero indices instead of dispatching a job. Border block changes dirty adjacent chunks so previously buried neighbors remesh.
+**Architecture:** `recompute_render_meta()` runs on sync/load/`ChunkStore::write_block` — not in `schedule_section_mesh`. Scheduling only reads `render_meta` and skips mesh jobs for empty vs fully occluded (separate flags). Cross-chunk `ChunkDirty` only when a section-face mutation crosses a chunk boundary; intra-chunk section neighbors are covered by dirtying the mutating chunk.
 
 **Tech Stack:** C++20, flecs, Catch2, CMake/MSVC. Headless tests use `engine_core` + `#define private public` on `StreamingTerrainSystem` where needed.
 
 **Spec:** `docs/superpowers/specs/2026-06-04-phaseA-section-occlusion-skip-design.md` (approved)
 
-**Plan errata (rev. 2):** `face_solid_mask` must be computed for every non-empty section (not only `is_opaque_full`). `section_fully_occluded` checks `face_solid` on neighbors, which can be true on partial sections. Task 4 uses `neighbor_chunk_and_section` (section + chunk boundaries), not chunk-only offsets.
+**Plan errata (rev. 3):**
+- `face_solid_mask` for every non-empty section (not only `is_opaque_full`).
+- Task 4: cross-**chunk** dirty only when `neighbor_chunk != mutation.chunk`; same-chunk section neighbors rely on existing `ChunkDirty` on the mutating chunk. Corners: check every touched section face.
+- `schedule_section_mesh` **reads** `render_meta` only — no `recompute_render_meta()` on schedule path.
+- Separate `empty_skip` vs `occluded_skip` counters (not one combined flag).
 
 **Build/test commands (Developer PowerShell for VS 2022):**
 ```powershell
@@ -361,22 +365,27 @@ git commit -m "feat(render): add section_fully_occluded cross-chunk helper"
 - Modify: `engine/render/StreamingTerrainSystem.cpp`
 - Modify: `tests/render/test_section_occlusion.cpp`
 
-- [ ] **Step 1: Extend `SectionMeshState`**
+- [ ] **Step 1: Extend `SectionMeshState` (two skip flags)**
 
 ```cpp
+bool empty_skip = false;
 bool occluded_skip = false;
 ```
 
-Reset `occluded_skip = false` in `soft_invalidate_chunk_mesh` and `invalidate_chunk_mesh` per section.
+Reset both to `false` in `soft_invalidate_chunk_mesh` and `invalidate_chunk_mesh`.
 
 - [ ] **Step 2: Add `mark_section_mesh_skipped` private helper**
 
 ```cpp
-void StreamingTerrainSystem::mark_section_mesh_skipped(SectionMeshState& section_state) {
+enum class SectionMeshSkipKind { Empty, FullyOccluded };
+
+void StreamingTerrainSystem::mark_section_mesh_skipped(
+    SectionMeshState& section_state, SectionMeshSkipKind kind) {
     section_state.mesh_ready = true;
     section_state.mesh_job_pending = false;
     section_state.needs_remesh = false;
-    section_state.occluded_skip = true;
+    section_state.empty_skip = (kind == SectionMeshSkipKind::Empty);
+    section_state.occluded_skip = (kind == SectionMeshSkipKind::FullyOccluded);
     section_state.opaque_vertices.clear();
     section_state.opaque_indices.clear();
     section_state.water_vertices.clear();
@@ -388,30 +397,44 @@ void StreamingTerrainSystem::mark_section_mesh_skipped(SectionMeshState& section
 }
 ```
 
-- [ ] **Step 3: Early-out in `schedule_section_mesh`**
+- [ ] **Step 3: Early-out in `schedule_section_mesh` (read-only meta)**
 
 After loading `chunk` and `section_index`, before `mesh_job_pending = true`:
 
 ```cpp
 const Section& live_section = chunk->sections[section_index];
-if (live_section.render_meta.is_empty || section_fully_occluded(coord, section_index)) {
-    mark_section_mesh_skipped(section_state);
+// render_meta must already be current (sync_occupancy / write_block / load paths).
+#ifndef NDEBUG
+    // Optional: assert palette/occupancy consistency, or compare against a one-off recompute.
+#endif
+if (live_section.render_meta.is_empty) {
+    mark_section_mesh_skipped(section_state, SectionMeshSkipKind::Empty);
     return;
 }
+if (section_fully_occluded(coord, section_index)) {
+    mark_section_mesh_skipped(section_state, SectionMeshSkipKind::FullyOccluded);
+    return;
+}
+section_state.empty_skip = false;
 section_state.occluded_skip = false;
 ```
 
-Ensure `live_section.render_meta` is fresh: call `chunk->sections[section_index].recompute_render_meta()` if dirty palette path might skip sync — safe to call `recompute_render_meta()` here once per schedule (cheap with fast paths).
+**Do not** call `recompute_render_meta()` here (`live_section` is const; scheduling must not full-scan).
 
-- [ ] **Step 4: Test — empty section does not increment pending jobs**
+- [ ] **Step 4: Tests — empty vs occluded skip flags**
 
 ```cpp
-TEST_CASE("schedule_section_mesh skips empty section without pending job") {
-    // allocate chunk, leave section air, init streaming + chunk_meshes entry
-    streaming.schedule_section_mesh(coord, 0);
-    REQUIRE_FALSE(streaming.count_pending_mesh_jobs() > 0); // or section mesh_job_pending false
-    REQUIRE(chunk_meshes_[coord].sections[0].mesh_ready);
-    REQUIRE(chunk_meshes_[coord].sections[0].occluded_skip);
+TEST_CASE("schedule_section_mesh skips empty section with empty_skip") {
+    streaming.schedule_section_mesh(coord, air_section_index);
+    REQUIRE(chunk_meshes_[coord].sections[i].mesh_ready);
+    REQUIRE(chunk_meshes_[coord].sections[i].empty_skip);
+    REQUIRE_FALSE(chunk_meshes_[coord].sections[i].occluded_skip);
+}
+
+TEST_CASE("schedule_section_mesh skips buried section with occluded_skip") {
+    // stone shell setup ...
+    REQUIRE(chunk_meshes_[coord].sections[i].occluded_skip);
+    REQUIRE_FALSE(chunk_meshes_[coord].sections[i].empty_skip);
 }
 ```
 
@@ -424,65 +447,66 @@ git commit -m "feat(render): skip mesh jobs for empty and fully occluded section
 
 ---
 
-## Task 4: Border invalidation + buried-neighbor remesh
+## Task 4: Invalidation (section vs chunk boundary)
 
 **Files:**
 - Modify: `engine/world/BlockLight.hpp` (export existing helper)
 - Modify: `engine/gameplay/BlockInteraction.cpp`
 - Modify: `engine/world/ChunkStore.cpp`
 
+**Rules:**
+
+| Situation | Action |
+|-----------|--------|
+| Block mutation (any) | `mark_chunk_dirty(mutation.chunk)` — already via `ChunkDirty`; remeshes all 8 sections in chunk |
+| Block on **section** face, neighbor in **same chunk** | No extra dirty — covered by row above (e.g. `section_y=1` NY → `section_y=0` same chunk) |
+| Block on section face, neighbor in **different chunk** | `mark_chunk_dirty(neighbor_chunk)` |
+| Block on **section corner/edge** (multiple faces) | For **each** axis where `blk` is `0` or `15`, resolve neighbor; dirty **distinct** neighbor chunks only |
+
 - [ ] **Step 1: Export `neighbor_chunk_and_section`**
 
-Already implemented in `BlockLight.cpp` (handles **section** and **chunk** boundaries). Add to `BlockLight.hpp`:
+Add declaration to `BlockLight.hpp` (implementation already in `BlockLight.cpp`).
+
+- [ ] **Step 2: Helpers in `BlockInteraction.cpp`**
 
 ```cpp
-void neighbor_chunk_and_section(
-    ChunkCoord chunk,
-    glm::ivec3 section_coord,
-    Face face,
-    ChunkCoord& out_chunk,
-    glm::ivec3& out_section);
-```
-
-Do **not** add `adjacent_chunk_for_face` — it only shifts chunk coords and breaks mutations on `x=15`/`x=0` section faces inside the same chunk.
-
-- [ ] **Step 2: Helper — block on section face boundary**
-
-In `BlockInteraction.cpp` anonymous namespace:
-
-```cpp
-[[nodiscard]] bool block_on_section_face(const BlockPos& pos, Face& out_face) {
+// Returns all section faces touched by this block position (1–3 faces at corners/edges).
+void section_faces_at_block(const BlockPos& pos, std::array<Face, 3>& faces, int& face_count) {
     const glm::ivec3 blk = pos.block_in_section();
-    if (blk.x == 0) { out_face = Face::NX; return true; }
-    if (blk.x == SECTION_DIM - 1) { out_face = Face::PX; return true; }
-    if (blk.y == 0) { out_face = Face::NY; return true; }
-    if (blk.y == SECTION_DIM - 1) { out_face = Face::PY; return true; }
-    if (blk.z == 0) { out_face = Face::NZ; return true; }
-    if (blk.z == SECTION_DIM - 1) { out_face = Face::PZ; return true; }
-    return false;
+    face_count = 0;
+    if (blk.x == 0) faces[face_count++] = Face::NX;
+    if (blk.x == SECTION_DIM - 1) faces[face_count++] = Face::PX;
+    if (blk.y == 0) faces[face_count++] = Face::NY;
+    if (blk.y == SECTION_DIM - 1) faces[face_count++] = Face::PY;
+    if (blk.z == 0) faces[face_count++] = Face::NZ;
+    if (blk.z == SECTION_DIM - 1) faces[face_count++] = Face::PZ;
+}
+
+void mark_cross_chunk_occlusion_neighbors_dirty(
+    flecs::world& world, ChunkStore& store, const BlockPos& pos) {
+    std::array<Face, 3> faces{};
+    int face_count = 0;
+    section_faces_at_block(pos, faces, face_count);
+    for (int i = 0; i < face_count; ++i) {
+        ChunkCoord neighbor_chunk{};
+        glm::ivec3 neighbor_section{};
+        neighbor_chunk_and_section(pos.chunk, pos.section_coord(), faces[i],
+                                   neighbor_chunk, neighbor_section);
+        if (neighbor_chunk != pos.chunk) {
+            mark_chunk_dirty(world, store, neighbor_chunk);
+        }
+    }
 }
 ```
 
-- [ ] **Step 3: After successful break/place `write_block`**
-
-When solid occupancy changed (`was_solid != now_solid`):
+- [ ] **Step 3: After successful break/place when solid changed**
 
 ```cpp
-Face boundary_face{};
-if (block_on_section_face(mutation.pos, boundary_face)) {
-    ChunkCoord neighbor_chunk{};
-    glm::ivec3 neighbor_section{};
-    neighbor_chunk_and_section(
-        mutation.pos.chunk,
-        mutation.pos.section_coord(),
-        boundary_face,
-        neighbor_chunk,
-        neighbor_section);
-    mark_chunk_dirty(world, store, neighbor_chunk);
+mark_chunk_dirty(world, store, mutation.pos.chunk); // if not already guaranteed
+if (was_solid != now_solid) {
+    mark_cross_chunk_occlusion_neighbors_dirty(world, store, mutation.pos);
 }
 ```
-
-`mark_chunk_dirty` on the mutating chunk already happens elsewhere; this adds the **across-face** chunk/section neighbor.
 
 - [ ] **Step 4: `recompute_render_meta` in `ChunkStore::write_block`**
 
@@ -492,11 +516,11 @@ After occupancy update:
 section.recompute_render_meta();
 ```
 
-- [ ] **Step 5: Integration test**
+- [ ] **Step 5: Integration tests**
 
-Extend `tests/render/test_section_occlusion.cpp` or `tests/gameplay/test_block_events.cpp`:
-
-Break border block on chunk boundary ⇒ neighbor chunk gets remesh scheduled (`needs_remesh` or pending job on neighbor section).
+1. Break block on **chunk** face (`x=0` in section at `section_coord.x==0`) ⇒ neighbor chunk `ChunkDirty` / remesh.
+2. Break block on **intra-chunk** section face (`y=16` boundary between sections) ⇒ mutating chunk remeshes; **no** requirement that a second chunk is dirtied.
+3. Corner on chunk edge ⇒ two distinct neighbor chunks dirtied when applicable.
 
 - [ ] **Step 6: Commit**
 
@@ -539,28 +563,32 @@ git commit -m "test(mesh): occlusion exposure produces limited faces"
 - Modify: `engine/ui/UiHost.cpp`
 - Modify: `engine/Engine.cpp`
 
-- [ ] **Step 1: Add counter**
+- [ ] **Step 1: Add counters (separate empty vs occluded)**
 
 ```cpp
-[[nodiscard]] std::size_t count_occluded_sections() const;
+[[nodiscard]] std::size_t count_empty_skip_sections() const;
+[[nodiscard]] std::size_t count_occluded_skip_sections() const;
 ```
 
-Count sections where `occluded_skip && mesh_ready`.
+- `empty_skip && mesh_ready`
+- `occluded_skip && mesh_ready`
 
-- [ ] **Step 2: UiOverlayStats field**
+- [ ] **Step 2: UiOverlayStats + overlay**
 
 ```cpp
+std::uint32_t empty_skip_sections = 0;
 std::uint32_t occluded_skip_sections = 0;
 ```
 
-Display: `ImGui::Text("Occluded skip: %u", stats.occluded_skip_sections);`
-
-Wire in `Engine.cpp` where other mesh stats are filled.
+```cpp
+ImGui::Text("Empty skip: %u", stats.empty_skip_sections);
+ImGui::Text("Occluded skip: %u", stats.occluded_skip_sections);
+```
 
 - [ ] **Step 3: Commit**
 
 ```powershell
-git commit -m "feat(ui): show occluded section skip count in debug overlay"
+git commit -m "feat(ui): separate empty and occluded mesh skip counters"
 ```
 
 ---
@@ -570,9 +598,9 @@ git commit -m "feat(ui): show occluded section skip count in debug overlay"
 **Files:**
 - Modify: `engine/render/StreamingTerrainSystem.cpp` (only if profiling shows benefit)
 
-- [ ] **Step 1: Early continue when `occluded_skip`**
+- [ ] **Step 1: Early continue when skipped**
 
-In `build_snapshot` section loop, skip GPU liveness checks when `section_state.occluded_skip`.
+In `build_snapshot` section loop, skip GPU liveness checks when `empty_skip || occluded_skip`.
 
 - [ ] **Step 2: Manual smoke**
 
@@ -600,7 +628,8 @@ Mark Phase A implemented in plan notes if desired.
 | A4 schedule skip + zero geom | Task 3 |
 | A4 invalidation | Task 4 |
 | A5 tests 1–7 | Tasks 1–5 |
-| A6 ImGui counter | Task 6 |
+| A6 ImGui counters (empty + occluded) | Task 6 |
+| recompute only on write/sync/load | Task 1 + 4, not Task 3 |
 | A7 non-goals | No BFS/LOD/GPU |
 
 ---
