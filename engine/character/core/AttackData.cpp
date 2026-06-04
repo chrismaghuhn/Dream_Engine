@@ -1,5 +1,6 @@
 #include "engine/character/core/AttackData.hpp"
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -135,6 +136,25 @@ AttackDef parse_attack_block(Lexer& lex, const std::string& id) {
         } else if (field == "dodge_cancel_window") {
             check_dup("dodge_cancel_window");
             def.dodge_cancel_start_norm = lex.read_float("dodge_cancel_window");
+        } else if (field == "clip_window") {
+            check_dup("clip_window");
+            def.clip_start_norm = lex.read_float("clip_window.start");
+            def.clip_end_norm   = lex.read_float("clip_window.end");
+        } else if (field == "time_scale") {
+            check_dup("time_scale");
+            def.time_scale = lex.read_float("time_scale");
+        } else if (field == "hitstop") {
+            check_dup("hitstop");
+            // Frame counts are integers: reject fractional values rather than
+            // silently truncating 3.9 -> 3.
+            const float hs = lex.read_float("hitstop");
+            if (hs < 0.f || std::floor(hs) != hs) {
+                throw std::runtime_error(
+                    lex.source + ":" + std::to_string(lex.line) + ":" +
+                    std::to_string(lex.col) +
+                    ": hitstop must be a non-negative integer in attack '" + id + "'");
+            }
+            def.hitstop_frames = static_cast<int>(hs);
         } else {
             throw std::runtime_error(
                 lex.source + ":" + std::to_string(lex.line) + ":" +
@@ -166,6 +186,15 @@ AttackDef parse_attack_block(Lexer& lex, const std::string& id) {
     if (def.dodge_cancel_start_norm > def.cancel_start_norm) {
         throw std::runtime_error(
             lex.source + ": dodge_cancel_window must be <= cancel_window in attack '" + id + "'");
+    }
+    if (def.clip_start_norm < 0.f || def.clip_end_norm > 1.f ||
+        def.clip_start_norm >= def.clip_end_norm) {
+        throw std::runtime_error(
+            lex.source + ": invalid clip_window in attack '" + id + "'");
+    }
+    if (def.time_scale <= 0.f) {
+        throw std::runtime_error(
+            lex.source + ": time_scale must be > 0 in attack '" + id + "'");
     }
 
     return def;
