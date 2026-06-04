@@ -12,7 +12,7 @@ Abgleich der ursprünglich vorgeschlagenen 10 Optimierungen gegen den IST-Zustan
 
 | # | Punkt | Status | Beleg |
 |---|-------|--------|-------|
-| 1 | Face Culling zwischen Chunks | Größtenteils da (Face-Ebene) | `GreedyMesher.cpp` liest `SectionBorderCache`, cullt Faces gegen Nachbarn cross-chunk. **Fehlt:** ganze verdeckte Sections überspringen |
+| 1 | Face Culling zwischen Chunks | **Phase A done** | `GreedyMesher.cpp` + `SectionRenderMeta`; `schedule_section_mesh` skippt empty/occluded Sections |
 | 2 | Bessere Meshing-Strategie | Greedy da, Transvoxel/DC nein | `GreedyMesher.cpp` (6-Achsen greedy, opaque+water) |
 | 3 | Section-Level Culling | **Fertig** | `StreamingTerrainSystem::build_snapshot` cullt pro Section (Frustum + Distanz) |
 | 4 | Async Meshing + Priorisierung | Größtenteils da | JobSystem-Meshing-Pool; Backlog/Upload/GPU-Alloc nach Distanz sortiert. **Fehlt:** echte Prioritäts-Queue |
@@ -21,7 +21,7 @@ Abgleich der ursprünglich vorgeschlagenen 10 Optimierungen gegen den IST-Zustan
 | 7 | GPU-Driven Rendering | Indirect Draw da, GPU-Culling nein | `vkCmdDrawIndexedIndirect`; Culling CPU-seitig in `build_snapshot` |
 | 8 | Chunk LOD | **Nein** | — |
 | 9 | Occlusion Culling | **Nein** (nur Frustum + Distanz) | `FrustumCull.hpp` |
-| 10 | Lighting AO + Block Light | Light gebacken, **AO = 0** | `GreedyMesher.cpp` `emit_quad`: `vert.ao = 0` |
+| 10 | Lighting AO + Block Light | **Phase B done** | `corner_ao` + Shader konsumiert `ao`/`light`; Wasser `ao = 3` |
 
 **Echte Lücken mit hohem Nutzen:** #8 (LOD), #9 (Occlusion), #1-Rest (Section-Occlusion-Skip), #10 (AO ist buchstäblich 0).
 
@@ -37,8 +37,8 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 
 | Phase | Inhalt (Punkt) | Größe | Liefert für spätere Phasen |
 |-------|----------------|-------|----------------------------|
-| **A** | Section-Occlusion-Skip (#1-Rest) | Klein | `SectionRenderMeta` (empty/opaque-full/face-solid) |
-| **B** | AO korrekt berechnen (#10) | Klein | Korrekte Vertex-AO im 8-Byte-Format |
+| **A** | Section-Occlusion-Skip (#1-Rest) | Klein | `SectionRenderMeta` — **implemented** (`000de64`) |
+| **B** | AO korrekt berechnen (#10) | Klein | Vertex-AO + Shader-Light — **implemented** (`fce273b`) |
 | **C** | Job-Priorisierung härten (#4-Rest) | Mittel | Prioritäts-Queue für Mesh/Upload |
 | **D** | Chunk-LOD (#8) | Groß | LOD-Mesher + Distanz-Auswahl + Far-Impostors |
 | **E** | Occlusion Culling (#9) | Mittel-groß | Konnektivitäts-/Software-Occlusion, nutzt A-Flags |
@@ -55,9 +55,10 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 
 ## 4. Detail-Specs pro Phase
 
-- Phase A: `2026-06-04-phaseA-section-occlusion-skip-design.md` (approved; plan: `plans/2026-06-04-phaseA-section-occlusion-skip.md`)
-- Phase B: `2026-06-04-phaseB-vertex-ao-light-design.md` (approved; plan: `plans/2026-06-04-phaseB-vertex-ao-light.md`)
-- Phasen C–H: jeweils eigene Spec, sobald die vorige Phase implementiert/abgenommen ist.
+- Phase A: `2026-06-04-phaseA-section-occlusion-skip-design.md` — **implemented** 2026-06-04 (`000de64`)
+- Phase B: `2026-06-04-phaseB-vertex-ao-light-design.md` — **implemented** 2026-06-04 (`fce273b`)
+- **Nächste:** Phase C (Job-Priorisierung) — Spec noch offen
+- Phasen D–H: jeweils eigene Spec nach Abnahme der vorigen Phase
 
 ## 5. Querschnitt-Entscheidungen
 

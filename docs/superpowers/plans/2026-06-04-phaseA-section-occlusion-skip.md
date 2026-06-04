@@ -8,7 +8,9 @@
 
 **Tech Stack:** C++20, flecs, Catch2, CMake/MSVC. Headless tests use `engine_core` + `#define private public` on `StreamingTerrainSystem` where needed.
 
-**Spec:** `docs/superpowers/specs/2026-06-04-phaseA-section-occlusion-skip-design.md` (approved)
+**Spec:** `docs/superpowers/specs/2026-06-04-phaseA-section-occlusion-skip-design.md` (implemented)
+
+**Implementation:** `000de64` (2026-06-04). Headless tests: `render meta`, `section occlusion`, `break on chunk face`.
 
 **Plan errata (rev. 3):**
 - `face_solid_mask` for every non-empty section (not only `is_opaque_full`).

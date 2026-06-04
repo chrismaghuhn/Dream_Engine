@@ -1,6 +1,6 @@
 # Phase A — Section-Occlusion-Skip — Design
 
-**Status:** Approved (2026-06-04)
+**Status:** Implemented (2026-06-04, commit `000de64`)
 **Roadmap:** `2026-06-04-rendering-performance-roadmap-design.md` (Phase A)
 **Bezug:** `2026-06-03-voxel-engine-design.md` §5 (Snapshot), §10.5 (Indexing), §12 (Meshing/Borders), §13 (Renderer)
 

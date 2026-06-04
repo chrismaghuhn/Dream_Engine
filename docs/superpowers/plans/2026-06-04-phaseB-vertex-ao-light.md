@@ -8,7 +8,9 @@
 
 **Tech Stack:** C++20, Vulkan 1.2 (volk), GLSL 450, Catch2, CMake/MSVC.
 
-**Spec:** `docs/superpowers/specs/2026-06-04-phaseB-vertex-ao-light-design.md` (rev. 2, approved)
+**Spec:** `docs/superpowers/specs/2026-06-04-phaseB-vertex-ao-light-design.md` (implemented)
+
+**Implementation:** `fce273b` (2026-06-04). Headless tests: `ctest -R "greedy mesher"` (12 tests).
 
 **Build/test commands (Developer PowerShell for VS 2022):**
 ```powershell
