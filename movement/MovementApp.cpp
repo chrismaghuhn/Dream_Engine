@@ -92,15 +92,15 @@ bool MovementApp::startup() {
     try {
         player_asset_ = engine::character::CharacterCatalog::load_player_set();
         player_char_handle_ = character_pass_.add_character(player_asset_);
-        player_anim_.active_clip = "Walk";
+        player_anim_.active_clip = "Idle";
         player_anim_.looping     = true;
 
         player_chains_[engine::character::kLightChain] = {
-            "elbow_strike", "counterstrike"};
+            "jab_left", "jab_right", "hook_left", "uppercut_right"};
         player_chains_[engine::character::kHeavyChain] = {
-            "spartan_kick", "dodge_and_counter"};
+            "uppercut_left", "upper_hook_right", "knee_strike"};
         player_chains_[engine::character::kKickChain] = {
-            "high_kick", "sweeping_kick", "lunge_spin_kick"};
+            "high_kick_step", "roundhouse", "spin_kick"};
         player_chains_[engine::character::kSpecialChain] = {
             "shield_push"};
 
@@ -511,7 +511,8 @@ void MovementApp::run() {
                                 player_anim_.speed = 0.f;
                                 engine::character::trigger_hit_react(
                                     dummy_react_, *dummy_tf, dir_norm, dummy_anim_,
-                                    &player_combat_, &camera_shake_);
+                                    &player_combat_, &camera_shake_,
+                                    ait->second.hitstop_frames);
                                 SPDLOG_INFO("Hit! combo[{}] attack '{}'",
                                             combo_i, atk_id);
                             }
