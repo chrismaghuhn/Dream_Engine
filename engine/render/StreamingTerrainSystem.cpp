@@ -227,12 +227,16 @@ void StreamingTerrainSystem::maybe_release_lod0_section_gpu_after_lod1_visible(
     }
 }
 
-void StreamingTerrainSystem::init(
-    flecs::world& world, ChunkStore& store, JobSystem& jobs, const WorldConfig& world_config) {
+void StreamingTerrainSystem::init(flecs::world& world,
+                                  ChunkStore& store,
+                                  JobSystem& jobs,
+                                  const WorldConfig& world_config,
+                                  const TerrainLodConfig terrain_lod_config) {
     world_ = &world;
     store_ = &store;
     jobs_ = &jobs;
     world_config_ = world_config;
+    terrain_lod_config_ = terrain_lod_config;
     chunk_meshes_.clear();
     completions_.clear();
     culled_opaque_sections_.clear();

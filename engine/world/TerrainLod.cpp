@@ -1,9 +1,33 @@
 #include "engine/world/TerrainLod.hpp"
 
+#include "engine/core/EngineConfig.hpp"
 #include "engine/gameplay/BlockRegistry.hpp"
 #include "engine/world/BlockLight.hpp"
 
 namespace engine {
+
+TerrainLodConfig terrain_lod_config_from_preset(const RenderPreset preset) {
+    TerrainLodConfig config{};
+    switch (preset) {
+    case RenderPreset::Low:
+        config.lod0_far_blocks       = 64.f;
+        config.lod1_far_blocks       = 384.f;
+        config.lod_hysteresis_blocks = 12.f;
+        break;
+    case RenderPreset::High:
+        config.lod0_far_blocks       = 128.f;
+        config.lod1_far_blocks       = 1024.f;
+        config.lod_hysteresis_blocks = 16.f;
+        break;
+    case RenderPreset::Medium:
+    default:
+        config.lod0_far_blocks       = 96.f;
+        config.lod1_far_blocks       = 512.f;
+        config.lod_hysteresis_blocks = 16.f;
+        break;
+    }
+    return config;
+}
 
 void recompute_chunk_render_meta(Chunk& chunk) {
     ChunkRenderMeta meta{};

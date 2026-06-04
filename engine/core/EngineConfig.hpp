@@ -3,6 +3,7 @@
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/MemoryBudget.hpp"
 #include "engine/world/StreamingConfig.hpp"
+#include "engine/world/TerrainLod.hpp"
 #include "engine/world/WorldConfig.hpp"
 
 #include <cstdint>
@@ -51,6 +52,7 @@ public:
     [[nodiscard]] bool creative_place() const { return creative_place_; }
     [[nodiscard]] const CpuHardware& cpu_hardware() const { return cpu_; }
     [[nodiscard]] RenderPreset render_preset() const { return render_preset_; }
+    [[nodiscard]] const TerrainLodConfig& terrain_lod() const { return terrain_lod_config_; }
     [[nodiscard]] const DestructionConfig& destruction() const { return destruction_; }
 
 private:
@@ -70,6 +72,7 @@ private:
     int destruction_max_fracture_depth_override_ = 0;
     float destruction_debris_despawn_radius_override_ = 0.f;
     RenderPreset render_preset_ = RenderPreset::Medium;
+    TerrainLodConfig terrain_lod_config_{};
     bool cpu_finalized_ = false;
 };
 

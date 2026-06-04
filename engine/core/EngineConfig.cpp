@@ -212,6 +212,7 @@ void EngineConfig::finalize_cpu(const CpuHardware& cpu) {
 void EngineConfig::finalize_gpu(const GpuCaps& gpu, RenderPreset preset) {
     render_preset_ = preset == RenderPreset::Medium ? render_preset_from_gpu(gpu) : preset;
     finalize_gpu_budget(memory_, gpu);
+    terrain_lod_config_ = terrain_lod_config_from_preset(render_preset_);
     streaming_ = streaming_config_from_hardware(memory_, world_, render_preset_);
     apply_streaming_toml_overrides(
         streaming_,

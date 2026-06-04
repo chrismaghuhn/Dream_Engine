@@ -19,11 +19,11 @@ Abgleich der ursprünglich vorgeschlagenen 10 Optimierungen gegen den IST-Zustan
 | 5 | Vertex Compression | **Fertig** | `TerrainVertex` = 8 Byte, Pos+Normal in 1× `uint32` (`SectionIndexing.hpp`) |
 | 6 | Bindless / Descriptor Indexing | Nein | Ein `sampler2DArray`, einmal gebunden (`TerrainPass`) |
 | 7 | GPU-Driven Rendering | Indirect Draw da, GPU-Culling nein | `vkCmdDrawIndexedIndirect`; Culling CPU-seitig in `build_snapshot` |
-| 8 | Chunk LOD | **Nein** | — |
+| 8 | Chunk LOD | **Phase D done (LOD1)** | `TerrainLod.hpp`, `ChunkLodMesher`, `StreamingTerrainSystem` LOD1 + `vertex_scale`; D.2 impostors optional |
 | 9 | Occlusion Culling | **Nein** (nur Frustum + Distanz) | `FrustumCull.hpp` |
 | 10 | Lighting AO + Block Light | **Phase B done** | `corner_ao` + Shader konsumiert `ao`/`light`; Wasser `ao = 3` |
 
-**Echte Lücken mit hohem Nutzen:** #8 (LOD), #9 (Occlusion), #1-Rest (Section-Occlusion-Skip), #10 (AO ist buchstäblich 0).
+**Echte Lücken mit hohem Nutzen:** #9 (Occlusion), D.2 Far-Impostors (optional Phase-D follow-up).
 
 ## 1. Ziel & Leitprinzip
 
@@ -40,7 +40,7 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 | **A** | Section-Occlusion-Skip (#1-Rest) | Klein | `SectionRenderMeta` — **implemented** (`000de64`) |
 | **B** | AO korrekt berechnen (#10) | Klein | Vertex-AO + Shader-Light — **implemented** (`fce273b`) |
 | **C** | Job-Priorisierung härten (#4-Rest) | Mittel | Section-Priority-Queue Mesh/GPU/Upload — **implemented** |
-| **D** | Chunk-LOD (#8) | Groß | LOD-Mesher + Distanz-Auswahl + Far-Impostors |
+| **D** | Chunk-LOD (#8) | Groß | LOD-Mesher + Distanz-Auswahl — **implemented** (`997f5e7`, `8e80324`); D.2 impostors optional |
 | **E** | Occlusion Culling (#9) | Mittel-groß | Konnektivitäts-/Software-Occlusion, nutzt A-Flags |
 | **F** | GPU-Driven Culling (#7) | Groß | Frustum/Occlusion/LOD auf GPU (Compute) |
 | **G** | Bindless / Descriptor Indexing (#6) | Mittel | Vorbereitung für #2 (Material-Vielfalt) |
@@ -58,7 +58,8 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 - Phase A: `2026-06-04-phaseA-section-occlusion-skip-design.md` — **implemented** 2026-06-04 (`000de64`)
 - Phase B: `2026-06-04-phaseB-vertex-ao-light-design.md` — **implemented** 2026-06-04 (`fce273b`)
 - Phase C: `2026-06-04-phaseC-mesh-job-priority-design.md` — **implemented** 2026-06-04
-- **Nächste:** Phase D (Chunk-LOD)
+- Phase D: `2026-06-04-phaseD-chunk-lod-design.md` — **implemented** 2026-06-04 (`997f5e7`, `8e80324`, `Phase D: LOD presets + docs`)
+- **Nächste:** Phase E (Occlusion Culling)
 - Phasen E–H: jeweils eigene Spec nach Abnahme der vorigen Phase
 
 ## 5. Querschnitt-Entscheidungen

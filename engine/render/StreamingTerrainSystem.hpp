@@ -22,7 +22,11 @@ namespace engine {
 
 class StreamingTerrainSystem {
 public:
-    void init(flecs::world& world, ChunkStore& store, JobSystem& jobs, const WorldConfig& world_config);
+    void init(flecs::world& world,
+              ChunkStore& store,
+              JobSystem& jobs,
+              const WorldConfig& world_config,
+              TerrainLodConfig terrain_lod_config = {});
     void register_observers(flecs::world& world);
 
     void on_frame(const glm::vec3& focus_world,

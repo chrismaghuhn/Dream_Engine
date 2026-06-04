@@ -141,7 +141,8 @@ bool Engine::startup() {
         thin_terrain_.build_cpu_meshes();
         SPDLOG_INFO("Terrain render mode: thin preview (single chunk at origin)");
     } else {
-        streaming_terrain_.init(world_, chunk_store_, jobs_, config_.world());
+        streaming_terrain_.init(
+            world_, chunk_store_, jobs_, config_.world(), config_.terrain_lod());
         SPDLOG_INFO("Terrain render mode: streaming multi-chunk");
     }
     SPDLOG_INFO(

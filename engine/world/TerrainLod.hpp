@@ -20,6 +20,9 @@ struct TerrainLodConfig {
     float lod_hysteresis_blocks = 16.f;
 };
 
+enum class RenderPreset;
+TerrainLodConfig terrain_lod_config_from_preset(RenderPreset preset);
+
 /// Squared horizontal distance (XZ) from chunk center to focus (world blocks).
 inline float chunk_horizontal_distance_sq(ChunkCoord coord, glm::vec3 focus_world) {
     const glm::vec3 chunk_center = glm::vec3(coord) * 32.f + glm::vec3(16.f);
