@@ -40,7 +40,8 @@ void trigger_hit_react(HitReact& react,
                        const glm::vec3& direction,
                        AnimationState& anim,
                        CombatController* attacker_combat,
-                       ScreenShake* shake) {
+                       ScreenShake* shake,
+                       int attacker_hitstop_frames) {
     react.playing_hit       = true;
     react.timer             = react.knockback_duration;
     // Horizontal knockback only.
@@ -55,7 +56,7 @@ void trigger_hit_react(HitReact& react,
     if (attacker_combat != nullptr) {
         attacker_combat->hitstop_active = true;
         attacker_combat->phase_before_hitstop = attacker_combat->phase;
-        attacker_combat->hitstop_frames = 5;
+        attacker_combat->hitstop_frames = attacker_hitstop_frames;
     }
 
     if (shake != nullptr) {

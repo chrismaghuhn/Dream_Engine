@@ -25,7 +25,8 @@ void trigger_hit_react(HitReact& react,
                        const glm::vec3& direction,
                        AnimationState& anim,
                        CombatController* attacker_combat = nullptr,
-                       ScreenShake* shake = nullptr);
+                       ScreenShake* shake = nullptr,
+                       int attacker_hitstop_frames = 5);
 
 void apply_screenshake(ScreenShake& shake, float magnitude, float duration);
 void tick_screenshake(ScreenShake& shake, float dt);
