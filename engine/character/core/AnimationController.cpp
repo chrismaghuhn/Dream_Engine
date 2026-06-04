@@ -135,8 +135,11 @@ std::vector<glm::mat4> poses_to_bone_matrices(const std::vector<BonePose>& pose,
 } // namespace
 
 std::string AnimationController::select_locomotion(float speed, bool grounded) {
-    if (!grounded || speed < 0.1f) {
+    if (!grounded) {
         return "Walk";
+    }
+    if (speed < 0.1f) {
+        return "Idle";
     }
     if (speed < 3.0f) {
         return "Walk";

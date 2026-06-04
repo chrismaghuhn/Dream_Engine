@@ -55,3 +55,13 @@ TEST_CASE("crossfade_to no-op when clip unchanged", "[animation]") {
     REQUIRE(anim.blend_clip.empty());
     REQUIRE(anim.time_seconds == Catch::Approx(0.5f));
 }
+
+TEST_CASE("select_locomotion returns Idle when standing", "[animation]") {
+    using engine::character::AnimationController;
+    REQUIRE(AnimationController::select_locomotion(0.0f, true)  == "Idle");
+    REQUIRE(AnimationController::select_locomotion(0.05f, true) == "Idle");
+    REQUIRE(AnimationController::select_locomotion(1.0f, true)  == "Walk");
+    REQUIRE(AnimationController::select_locomotion(4.0f, true)  == "Run");
+    // Airborne falls back to Walk (no idle in the air).
+    REQUIRE(AnimationController::select_locomotion(0.0f, false) == "Walk");
+}
