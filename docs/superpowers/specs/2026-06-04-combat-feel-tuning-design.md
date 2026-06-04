@@ -173,8 +173,15 @@ compatible). Logical clip name → source GLB (raw duration):
 | Roundhouse | Roundhouse_Kick | 2.73 s |
 | Spin_Kick | Lunge_Spin_Kick | 1.67 s |
 | Shield_Push | Shield_Push_Left | 2.43 s |
+| Idle | Idle_7 (`assets/Fight`) | 8.80 s (looped) |
 
-Locomotion `Walk` / `Run` stay loaded from the player directory.
+Locomotion `Walk` / `Run` stay loaded from the player directory. A dedicated
+**`Idle`** clip (`assets/Fight/Meshy_AI_Animation_Idle_7_withSkin.glb`, skeleton-
+compatible, looped) becomes the rest pose:
+- `AnimationController::select_locomotion` returns `"Idle"` when grounded and
+  `speed < 0.1` (today it returns `"Walk"` while standing still).
+- `CombatController::reset_to_idle` crossfades to `"Idle"` (not `"Walk"`).
+- `MovementApp` initializes `player_anim_.active_clip = "Idle"`.
 
 **Chains** (`movement/MovementApp.cpp`):
 - **Light** (`kLightChain`): `jab_left → jab_right → hook_left → uppercut_right` (finisher)
@@ -303,8 +310,8 @@ attack shield_push {
 ## 8. Clip loading (`engine/character/core/CharacterCatalog.cpp`)
 
 `load_player_set` keeps base + `Walk` + `Run` from the player directory and loads
-the 11 combat clips above from `assets/Fight` (full path, skeleton validated on
-ingest, cached per `base|anim|name` key). Old player-dir combat clips
+the 11 combat clips plus the `Idle` clip from `assets/Fight` (full path, skeleton
+validated on ingest, cached per `base|anim|name` key). Old player-dir combat clips
 (Counterstrike, Dodge_and_Counter, Elbow_Strike, etc.) are no longer loaded.
 
 ## 9. Tests
@@ -337,7 +344,9 @@ render features. Movement/dodge integration stays as-is (dodge-cancel already wi
 | `engine/character/core/AttackData.hpp` | Add `clip_start_norm`, `clip_end_norm`, `time_scale`, `hitstop_frames` |
 | `engine/character/core/AttackData.cpp` | Parse new keys; assert invariants |
 | `engine/character/core/CharacterComponents.hpp` | Add `recovery_timer` to `CombatController` |
-| `engine/character/core/CombatController.cpp` | Trimmed `norm_time`; seed time/speed; recovery timer; clamp to `clip_end_s`; per-attack hitstop hand-off |
+| `engine/character/core/CombatController.cpp` | Trimmed `norm_time`; seed time/speed; recovery timer; clamp to `clip_end_s`; `reset_to_idle` → `"Idle"` |
+| `engine/character/core/AnimationController.cpp` | `select_locomotion` returns `"Idle"` when standing |
+| `assets/Fight/Meshy_AI_Animation_Idle_7_withSkin.glb` | New idle rest-pose clip |
 | `engine/character/core/HitReactSystem.hpp/.cpp` | `trigger_hit_react` takes hitstop frames from caller |
 | `engine/character/core/CharacterCatalog.cpp` | Load combat clips from `assets/Fight` |
 | `assets/character/combat_attacks.txt` | New roster + trimmed frame data |
