@@ -89,8 +89,12 @@ std::vector<T> read_vec(std::ifstream& in) {
 }
 
 // Magic bytes and version for the .charbin format.
+// v2: AnimChannel split shared key_times into per-component time arrays
+//     (translation/rotation/scale) and CharacterAsset gained node_transform.
+//     The version bump forces stale v1 caches to be re-cooked instead of
+//     being misread with the new layout.
 constexpr std::uint32_t kMagic   = 0x52414843u; // "CHAR" little-endian
-constexpr std::uint32_t kVersion = 1u;
+constexpr std::uint32_t kVersion = 2u;
 
 } // namespace
 
