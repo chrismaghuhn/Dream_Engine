@@ -15,7 +15,7 @@ Abgleich der ursprünglich vorgeschlagenen 10 Optimierungen gegen den IST-Zustan
 | 1 | Face Culling zwischen Chunks | **Phase A done** | `GreedyMesher.cpp` + `SectionRenderMeta`; `schedule_section_mesh` skippt empty/occluded Sections |
 | 2 | Bessere Meshing-Strategie | Greedy da, Transvoxel/DC nein | `GreedyMesher.cpp` (6-Achsen greedy, opaque+water) |
 | 3 | Section-Level Culling | **Fertig** | `StreamingTerrainSystem::build_snapshot` cullt pro Section (Frustum + Distanz) |
-| 4 | Async Meshing + Priorisierung | Größtenteils da | JobSystem-Meshing-Pool; Backlog/Upload/GPU-Alloc nach Distanz sortiert. **Fehlt:** echte Prioritäts-Queue |
+| 4 | Async Meshing + Priorisierung | **Phase C done** | Section-level priority in backlog, GPU alloc, uploads (`section_mesh_distance_sq`) |
 | 5 | Vertex Compression | **Fertig** | `TerrainVertex` = 8 Byte, Pos+Normal in 1× `uint32` (`SectionIndexing.hpp`) |
 | 6 | Bindless / Descriptor Indexing | Nein | Ein `sampler2DArray`, einmal gebunden (`TerrainPass`) |
 | 7 | GPU-Driven Rendering | Indirect Draw da, GPU-Culling nein | `vkCmdDrawIndexedIndirect`; Culling CPU-seitig in `build_snapshot` |
@@ -39,7 +39,7 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 |-------|----------------|-------|----------------------------|
 | **A** | Section-Occlusion-Skip (#1-Rest) | Klein | `SectionRenderMeta` — **implemented** (`000de64`) |
 | **B** | AO korrekt berechnen (#10) | Klein | Vertex-AO + Shader-Light — **implemented** (`fce273b`) |
-| **C** | Job-Priorisierung härten (#4-Rest) | Mittel | Prioritäts-Queue für Mesh/Upload |
+| **C** | Job-Priorisierung härten (#4-Rest) | Mittel | Section-Priority-Queue Mesh/GPU/Upload — **implemented** |
 | **D** | Chunk-LOD (#8) | Groß | LOD-Mesher + Distanz-Auswahl + Far-Impostors |
 | **E** | Occlusion Culling (#9) | Mittel-groß | Konnektivitäts-/Software-Occlusion, nutzt A-Flags |
 | **F** | GPU-Driven Culling (#7) | Groß | Frustum/Occlusion/LOD auf GPU (Compute) |
@@ -57,8 +57,9 @@ Reihenfolge nach Abhängigkeiten + Boost/Aufwand. **Jede Phase bekommt ihre eige
 
 - Phase A: `2026-06-04-phaseA-section-occlusion-skip-design.md` — **implemented** 2026-06-04 (`000de64`)
 - Phase B: `2026-06-04-phaseB-vertex-ao-light-design.md` — **implemented** 2026-06-04 (`fce273b`)
-- **Nächste:** Phase C (Job-Priorisierung) — Spec noch offen
-- Phasen D–H: jeweils eigene Spec nach Abnahme der vorigen Phase
+- Phase C: `2026-06-04-phaseC-mesh-job-priority-design.md` — **implemented** 2026-06-04
+- **Nächste:** Phase D (Chunk-LOD)
+- Phasen E–H: jeweils eigene Spec nach Abnahme der vorigen Phase
 
 ## 5. Querschnitt-Entscheidungen
 

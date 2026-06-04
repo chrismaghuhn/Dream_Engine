@@ -15,6 +15,7 @@ add_executable(engine_tests
     world/test_streaming.cpp
     world/test_greedy_mesher.cpp
     world/test_section_render_meta.cpp
+    world/test_section_mesh_priority.cpp
     world/test_block_light.cpp
     world/test_chunk_unload_gpu.cpp
     procgen/test_heightmap_worldgen.cpp

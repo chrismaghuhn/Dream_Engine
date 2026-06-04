@@ -590,22 +590,24 @@ void StreamingTerrainSystem::ensure_gpu_slots(GpuMeshPool& mesh_pool,
             continue;
         }
 
-        const float chunk_dist = chunk_distance_sq(coord, focus_world_);
         for (SectionMeshState& section_state : chunk_state.sections) {
             if (!section_state.mesh_ready) {
                 continue;
             }
 
+            const float section_dist =
+                section_mesh_distance_sq(coord, section_state.section_index, focus_world_);
+
             if (!section_state.opaque_gpu_allocated && !section_state.opaque_vertices.empty() &&
                 !section_state.opaque_indices.empty()) {
                 candidates.push_back(
-                    GpuAllocCandidate{coord, section_state.section_index, false, chunk_dist});
+                    GpuAllocCandidate{coord, section_state.section_index, false, section_dist});
             }
 
             if (!section_state.water_gpu_allocated && !section_state.water_vertices.empty() &&
                 !section_state.water_indices.empty()) {
                 candidates.push_back(
-                    GpuAllocCandidate{coord, section_state.section_index, true, chunk_dist});
+                    GpuAllocCandidate{coord, section_state.section_index, true, section_dist});
             }
         }
     }
@@ -703,20 +705,22 @@ void StreamingTerrainSystem::queue_uploads(MeshUploadQueue& upload_queue, GpuMes
             continue;
         }
 
-        const float chunk_dist = chunk_distance_sq(coord, focus_world_);
         for (SectionMeshState& section_state : chunk_state.sections) {
+            const float section_dist =
+                section_mesh_distance_sq(coord, section_state.section_index, focus_world_);
+
             if (section_state.opaque_gpu_allocated && !section_state.opaque_upload_queued &&
                 !section_state.opaque_gpu_uploaded && section_state.opaque_gpu_slot_id != 0 &&
                 !section_state.opaque_vertices.empty()) {
                 candidates.push_back(
-                    UploadCandidate{coord, section_state.section_index, false, chunk_dist});
+                    UploadCandidate{coord, section_state.section_index, false, section_dist});
             }
 
             if (section_state.water_gpu_allocated && !section_state.water_upload_queued &&
                 !section_state.water_gpu_uploaded && section_state.water_gpu_slot_id != 0 &&
                 !section_state.water_vertices.empty()) {
                 candidates.push_back(
-                    UploadCandidate{coord, section_state.section_index, true, chunk_dist});
+                    UploadCandidate{coord, section_state.section_index, true, section_dist});
             }
         }
     }
@@ -1032,35 +1036,47 @@ void StreamingTerrainSystem::process_mesh_backlog() {
         return;
     }
 
-    std::vector<ChunkCoord> coords;
-    store_->for_each_loaded([&](const ChunkCoord coord) {
-        if (!store_->is_pending_unload(coord)) {
-            coords.push_back(coord);
-        }
-    });
-    std::sort(coords.begin(), coords.end(), [this](const ChunkCoord& a, const ChunkCoord& b) {
-        return chunk_distance_sq(a, focus_world_) < chunk_distance_sq(b, focus_world_);
-    });
+    struct MeshBacklogEntry {
+        ChunkCoord       coord{};
+        std::uint8_t     section_index = 0;
+        float            distance_sq   = 0.f;
+        bool             needs_remesh  = false;
+    };
 
-    for (const ChunkCoord coord : coords) {
-        if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
-            break;
-        }
-        if (!chunk_within_mesh_radius(coord)) {
-            continue;
+    std::vector<MeshBacklogEntry> backlog;
+    store_->for_each_loaded([&](const ChunkCoord coord) {
+        if (store_->is_pending_unload(coord) || !chunk_within_mesh_radius(coord)) {
+            return;
         }
 
         ChunkMeshState& chunk_state = chunk_meshes_[coord];
-        chunk_state.coord = coord;
+        chunk_state.coord           = coord;
         for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
-            if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
-                break;
+            const SectionMeshState& section_state = chunk_state.sections[section_index];
+            if (section_state.mesh_ready || section_state.mesh_job_pending) {
+                continue;
             }
-            SectionMeshState& section_state = chunk_state.sections[section_index];
-            if (!section_state.mesh_ready && !section_state.mesh_job_pending) {
-                schedule_section_mesh(coord, section_index);
-            }
+            backlog.push_back(MeshBacklogEntry{
+                coord,
+                section_index,
+                section_mesh_distance_sq(coord, section_index, focus_world_),
+                section_state.needs_remesh,
+            });
         }
+    });
+
+    std::sort(backlog.begin(), backlog.end(), [](const MeshBacklogEntry& a, const MeshBacklogEntry& b) {
+        if (a.distance_sq != b.distance_sq) {
+            return a.distance_sq < b.distance_sq;
+        }
+        return a.needs_remesh > b.needs_remesh;
+    });
+
+    for (const MeshBacklogEntry& entry : backlog) {
+        if (count_pending_mesh_jobs() >= kMaxPendingMeshJobs) {
+            break;
+        }
+        schedule_section_mesh(entry.coord, entry.section_index);
     }
 }
 

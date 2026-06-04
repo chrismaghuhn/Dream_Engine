@@ -1,4 +1,6 @@
 #pragma once
+#include "engine/core/math.hpp"
+
 #include <cstdint>
 #include <glm/glm.hpp>
 
@@ -25,6 +27,15 @@ inline int section_index(int sx, int sy, int sz) {
 
 inline glm::ivec3 section_coord_from_index(int idx) {
     return { (idx) & 1, (idx >> 2) & 1, (idx >> 1) & 1 };
+}
+
+/// Squared distance from focus to section center (world blocks). Used for mesh/upload priority.
+inline float section_mesh_distance_sq(ChunkCoord coord, int section_index, glm::vec3 focus_world) {
+    const glm::ivec3 section_coord = section_coord_from_index(section_index);
+    const glm::vec3 section_center_world =
+        glm::vec3(coord) * 32.f + glm::vec3(section_coord) * 16.f + glm::vec3(8.f);
+    const glm::vec3 delta = section_center_world - focus_world;
+    return glm::dot(delta, delta);
 }
 
 constexpr uint32_t POS_BITS = 5;
