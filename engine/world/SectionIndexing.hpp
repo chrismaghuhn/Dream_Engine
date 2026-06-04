@@ -57,6 +57,8 @@ inline Face opposite_face(Face f) {
     return static_cast<Face>(static_cast<uint32_t>(f) ^ 1u);
 }
 
+/// LOD1 chunk meshes use the same packed coordinate range as LOD0 sections (0..16).
+/// World extent for LOD1 is applied at draw time via push constant vertex_scale = 2.
 inline uint32_t pack_vertex(uint32_t x, uint32_t y, uint32_t z, Face f) {
     return (x & POS_MASK)
          | ((y & POS_MASK) << 5)

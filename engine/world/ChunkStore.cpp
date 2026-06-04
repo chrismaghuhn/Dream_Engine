@@ -1,6 +1,7 @@
 #include "engine/world/ChunkStore.hpp"
 
 #include "engine/world/BlockLight.hpp"
+#include "engine/world/TerrainLod.hpp"
 
 #include "engine/gameplay/BlockRegistry.hpp"
 
@@ -160,6 +161,7 @@ bool ChunkStore::write_block(BlockPos pos, BlockState state,
     Section& section = chunk->section_at(sec);
 
     const BlockState old = section.read_block(blk.x, blk.y, blk.z);
+    const size_t     palette_size_before = section.palette.size();
     if (!section.write_block(blk.x, blk.y, blk.z, state)) {
         return false;
     }
@@ -170,6 +172,12 @@ bool ChunkStore::write_block(BlockPos pos, BlockState state,
         section.occupancy.set(blk.x, blk.y, blk.z, now_solid);
     }
     section.recompute_render_meta();
+
+    const bool water_affected = is_water(block_id(old)) || is_water(block_id(state));
+    const bool palette_changed = section.palette.size() != palette_size_before;
+    if (water_affected || palette_changed) {
+        recompute_chunk_render_meta(*chunk);
+    }
 
     BlockLightUpdateQueue light_queue{};
     const std::vector<ChunkCoord> dirty =

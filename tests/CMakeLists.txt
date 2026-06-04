@@ -6,6 +6,9 @@ add_executable(engine_tests
     core/test_default_toml.cpp
     core/test_job_system.cpp
     world/test_indexing.cpp
+    world/test_pack_vertex_lod.cpp
+    world/test_chunk_lod_selection.cpp
+    world/test_chunk_lod_mesher.cpp
     world/test_world_config.cpp
     world/test_world_events.cpp
     world/test_origin_rebase.cpp

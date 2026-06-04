@@ -13,6 +13,8 @@ set(ENGINE_CORE_SOURCES
     world/StreamingSystem.cpp
     world/BlockLight.cpp
     world/GreedyMesher.cpp
+    world/TerrainLod.cpp
+    world/ChunkLodMesher.cpp
     render/ThinTerrainPreview.cpp
     render/StreamingTerrainSystem.cpp
     gameplay/Camera.cpp

@@ -2,6 +2,7 @@
 
 #include "engine/gameplay/BlockRegistry.hpp"
 #include "engine/world/SectionIndexing.hpp"
+#include "engine/world/TerrainLod.hpp"
 
 #include <glm/glm.hpp>
 
@@ -79,6 +80,7 @@ void HeightmapWorldgen::fill_chunk(Chunk& chunk) const {
     for (Section& section : chunk.sections) {
         section.sync_occupancy_from_blocks();
     }
+    recompute_chunk_render_meta(chunk);
 
     chunk.flags = CHUNK_GENERATED;
     chunk.flags &= static_cast<uint8_t>(~CHUNK_MODIFIED_BY_PLAYER);

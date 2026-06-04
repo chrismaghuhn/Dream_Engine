@@ -14,9 +14,14 @@ enum ChunkBlobFlags : uint8_t {
     CHUNK_MODIFIED_BY_PLAYER = 1 << 1,
 };
 
+struct ChunkRenderMeta {
+    bool has_water = false;
+};
+
 struct Chunk {
     ChunkCoord coord{};
     std::array<Section, 8> sections{};
+    ChunkRenderMeta render_meta{};
     uint8_t flags = 0;
 
     [[nodiscard]] Section& section_at(int sx, int sy, int sz) {

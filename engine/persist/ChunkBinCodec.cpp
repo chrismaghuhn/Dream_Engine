@@ -1,6 +1,7 @@
 #include "engine/persist/ChunkBinCodec.hpp"
 
 #include "engine/world/SectionIndexing.hpp"
+#include "engine/world/TerrainLod.hpp"
 
 #include <cstring>
 #include <span>
@@ -133,6 +134,7 @@ bool decode_chunk_bin(std::span<const std::uint8_t> bytes, Chunk& chunk) {
         }
     }
 
+    recompute_chunk_render_meta(chunk);
     return true;
 }
 
