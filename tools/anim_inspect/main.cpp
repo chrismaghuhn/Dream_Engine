@@ -76,10 +76,10 @@ int main() {
     }
 
     std::printf("\n=== Attack frame data (resolved to seconds @ %.0f Hz) ===\n", kHz);
-    std::printf("%-18s %-16s %7s | %-13s %-13s %-13s | %-11s %-11s | %-12s\n",
+    std::printf("%-18s %-16s %7s | %-13s %-13s %-13s | %-11s %-11s | %-12s | %-13s\n",
                 "attack", "clip", "dur(s)",
                 "startup", "active", "recov-tail",
-                "cancel@", "dodge@", "chain-window");
+                "cancel@", "dodge@", "chain-window", "eff(trim/scl)");
 
     std::vector<std::string> ids;
     for (const auto& [id, def] : attacks) {
@@ -103,20 +103,30 @@ int main() {
         const float recov_tail        = dur - active_end;          // hitbox close -> clip end
         const float chain_window        = dur - cancel_at;            // time you may chain in
 
+        // Effective on-screen attack length: the trimmed playback region
+        // [clip_start, clip_end] divided by the playback speed multiplier.
+        const float trim_start = def.clip_start_norm * dur;
+        const float trim_end   = def.clip_end_norm   * dur;
+        const float effective  = def.time_scale > 1e-5f
+            ? (trim_end - trim_start) / def.time_scale
+            : (trim_end - trim_start);
+
         std::printf("%-18s %-16s %7.3f | "
                     "0.00-%4.2f(%2df) %4.2f-%4.2f(%2df) %4.2f(%2df) | "
-                    "%4.2f(%2df) %4.2f(%2df) | %5.2fs(%2df)\n",
+                    "%4.2f(%2df) %4.2f(%2df) | %5.2fs(%2df) | %5.2fs(%2df)\n",
                     id.c_str(), def.clip.c_str(), dur,
                     startup_end, frames(startup_end),
                     startup_end, active_end, frames(active_end - startup_end),
                     recov_tail, frames(recov_tail),
                     cancel_at, frames(cancel_at),
                     dodge_at, frames(dodge_at),
-                    chain_window, frames(chain_window));
+                    chain_window, frames(chain_window),
+                    effective, frames(effective));
     }
 
-    std::printf("\nNote: recovery_seconds field in combat_attacks.txt is parsed but "
-                "currently unused by combat_tick (reset happens at clip end).\n");
+    std::printf("\nNote: 'eff' = trimmed clip_window divided by time_scale = the actual "
+                "on-screen attack length. Recovery now ends after recovery_seconds "
+                "(timer-driven in combat_tick), independent of the raw clip tail.\n");
 
     // --- assets/Fight compatibility + duration scan ---------------------------
     // Tries to load each Fight GLB as an animation clip onto the PLAYER base
