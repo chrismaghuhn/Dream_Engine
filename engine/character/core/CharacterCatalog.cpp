@@ -45,38 +45,45 @@ CharacterAsset CharacterCatalog::load_player_set() {
     const std::string base_path = player_glb("Character_output.glb");
     require_exists(base_path);
 
-    // Load base mesh from cache or disk.
     CharacterAsset asset = CookedCharacterCache::load_or_cook(base_path, [&] {
         return GltfIngest::load_base(base_path);
     });
 
-    // Animation clip list: (file suffix, logical clip name)
-    const std::pair<std::string, std::string> clips[] = {
-        {"Animation_Walking_withSkin.glb",          "Walk"},
-        {"Animation_Running_withSkin.glb",          "Run"},
-        {"Animation_High_Kick_withSkin.glb",        "High_Kick"},
-        {"Animation_Elbow_Strike_withSkin.glb",     "Elbow_Strike"},
-        {"Animation_Counterstrike_withSkin.glb",    "Counterstrike"},
-        {"Animation_Spartan_Kick_withSkin.glb",     "Spartan_Kick"},
-        {"Animation_Dodge_and_Counter_withSkin.glb","Dodge_and_Counter"},
-        {"Animation_Sweeping_Kick_withSkin.glb",    "Sweeping_Kick"},
-        {"Animation_Lunge_Spin_Kick_withSkin.glb",  "Lunge_Spin_Kick"},
-        {"Animation_Shield_Push_Left_withSkin.glb", "Shield_Push_Left"},
+    auto append_clip = [&](const std::string& anim_path, const std::string& clip_name) {
+        require_exists(anim_path);
+        const std::string cache_key = base_path + "|" + anim_path + "|" + clip_name;
+        CharacterAsset tmp = CookedCharacterCache::load_or_cook(cache_key, [&] {
+            CharacterAsset t = GltfIngest::load_base(base_path);
+            GltfIngest::load_animation_clip(t, anim_path, clip_name);
+            return t;
+        });
+        if (!tmp.clips.empty()) {
+            asset.clips.push_back(std::move(tmp.clips.back()));
+        }
     };
 
-    for (const auto& [suffix, clip_name] : clips) {
-        const std::string anim_path = player_glb(suffix);
-        require_exists(anim_path);
-        // Use a per-animation cache key that includes both base and animation path.
-        const std::string cache_key = base_path + "|" + anim_path + "|" + clip_name;
-        CharacterAsset anim_tmp = CookedCharacterCache::load_or_cook(cache_key, [&] {
-            CharacterAsset tmp = GltfIngest::load_base(base_path);
-            GltfIngest::load_animation_clip(tmp, anim_path, clip_name);
-            return tmp;
-        });
-        if (!anim_tmp.clips.empty()) {
-            asset.clips.push_back(std::move(anim_tmp.clips.back()));
-        }
+    // Locomotion from the player directory.
+    append_clip(player_glb("Animation_Walking_withSkin.glb"), "Walk");
+    append_clip(player_glb("Animation_Running_withSkin.glb"), "Run");
+
+    // Combat clips from assets/Fight (verified skeleton-compatible with the rig).
+    const std::string fight_dir = std::string(ENGINE_SOURCE_DIR) + "/assets/Fight/";
+    const std::pair<std::string, std::string> combat[] = {
+        {"Meshy_AI_Animation_Left_Jab_from_Guard_withSkin.glb",          "Jab_Left"},
+        {"Meshy_AI_Animation_Right_Jab_from_Guard_withSkin.glb",         "Jab_Right"},
+        {"Meshy_AI_Animation_Left_Hook_from_Guard_withSkin.glb",         "Hook_Left"},
+        {"Meshy_AI_Animation_Right_Uppercut_from_Guard_withSkin.glb",    "Uppercut_Right"},
+        {"Meshy_AI_Animation_Left_Uppercut_from_Guard_withSkin.glb",     "Uppercut_Left"},
+        {"Meshy_AI_Animation_Right_Upper_Hook_from_Guard_withSkin.glb",  "Upper_Hook_Right"},
+        {"Meshy_AI_Animation_Boxing_Guard_Step_Knee_Strike_withSkin.glb","Knee_Strike"},
+        {"Meshy_AI_Animation_Step_in_High_Kick_withSkin.glb",            "Kick_High_Step"},
+        {"Meshy_AI_Animation_Roundhouse_Kick_withSkin.glb",              "Roundhouse"},
+        {"Meshy_AI_Animation_Lunge_Spin_Kick_withSkin.glb",              "Spin_Kick"},
+        {"Meshy_AI_Animation_Shield_Push_Left_withSkin.glb",             "Shield_Push"},
+        {"Meshy_AI_Animation_Idle_7_withSkin.glb",                       "Idle"},
+    };
+    for (const auto& [file, clip_name] : combat) {
+        append_clip(fight_dir + file, clip_name);
     }
 
     SPDLOG_INFO("CharacterCatalog: player set loaded — {} clips", asset.clips.size());
