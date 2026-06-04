@@ -3,6 +3,7 @@
 #include "engine/core/JobSystem.hpp"
 #include "engine/render/GpuMeshPool.hpp"
 #include "engine/render/MeshUploadQueue.hpp"
+#include "engine/render/SectionVisibility.hpp"
 #include "engine/render/WorldRenderSnapshot.hpp"
 #include "engine/world/ChunkStore.hpp"
 #include "engine/world/TerrainLod.hpp"
@@ -26,7 +27,8 @@ public:
               ChunkStore& store,
               JobSystem& jobs,
               const WorldConfig& world_config,
-              TerrainLodConfig terrain_lod_config = {});
+              TerrainLodConfig terrain_lod_config = {},
+              TerrainOcclusionConfig terrain_occlusion_config = {});
     void register_observers(flecs::world& world);
 
     void on_frame(const glm::vec3& focus_world,
@@ -54,6 +56,13 @@ public:
     [[nodiscard]] std::uint32_t count_water_border_lod0_forced() const {
         return water_border_lod0_forced_;
     }
+    [[nodiscard]] std::uint32_t count_connectivity_visible_sections() const {
+        return connectivity_visible_sections_;
+    }
+    [[nodiscard]] std::uint32_t count_connectivity_culled_sections() const {
+        return connectivity_culled_sections_;
+    }
+    [[nodiscard]] bool connectivity_bfs_truncated() const { return connectivity_bfs_truncated_; }
 
     // Mesh scheduling / occlusion helpers (public for headless tests; MSVC mangles
     // private members differently than `#define private public` in test TUs).
@@ -182,6 +191,8 @@ private:
                                     const glm::vec3& chunk_origin_world,
                                     const glm::vec3& render_origin,
                                     const std::array<glm::vec4, 6>& frustum_planes,
+                                    const ChunkStore& store,
+                                    const SectionVisibilityResult& visibility,
                                     const GpuMeshPool& mesh_pool,
                                     std::uint32_t& opaque_indirect_index);
     void append_lod0_water_draws(const ChunkCoord coord,
@@ -214,6 +225,7 @@ private:
     JobSystem* jobs_ = nullptr;
     WorldConfig world_config_{};
     TerrainLodConfig terrain_lod_config_{};
+    TerrainOcclusionConfig terrain_occlusion_config_{};
 
     std::unordered_map<ChunkCoord, ChunkMeshState, ChunkCoordHash> chunk_meshes_;
     std::mutex completion_mutex_;
@@ -223,6 +235,9 @@ private:
     std::vector<DrawSection> culled_water_sections_;
     std::uint32_t lod1_draw_chunks_ = 0;
     std::uint32_t water_border_lod0_forced_ = 0;
+    std::uint32_t connectivity_visible_sections_ = 0;
+    std::uint32_t connectivity_culled_sections_ = 0;
+    bool connectivity_bfs_truncated_ = false;
 };
 
 } // namespace engine

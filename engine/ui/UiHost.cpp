@@ -302,6 +302,10 @@ void UiHost::new_frame(const UiOverlayStats& stats, UiInventoryState& inventory_
         ImGui::Text("LOD1 draw chunks: %u", stats.lod1_draw_chunks);
         ImGui::Text("LOD1 mesh jobs pending: %u", stats.pending_lod1_mesh_jobs);
         ImGui::Text("Water-border LOD0 forced: %u", stats.water_border_lod0_forced);
+        ImGui::Text("Connectivity visible sections: %u", stats.connectivity_visible_sections);
+        ImGui::Text("Connectivity culled sections: %u", stats.connectivity_culled_sections);
+        ImGui::Text("Connectivity BFS truncated: %s",
+                    stats.connectivity_bfs_truncated ? "yes" : "no");
         ImGui::Text("GPU mesh budget: %u MiB", stats.gpu_mesh_budget_mib);
     }
     ImGui::End();

@@ -2,6 +2,7 @@
 
 #include "engine/core/HardwareProbe.hpp"
 #include "engine/core/MemoryBudget.hpp"
+#include "engine/render/SectionVisibility.hpp"
 #include "engine/world/StreamingConfig.hpp"
 #include "engine/world/TerrainLod.hpp"
 #include "engine/world/WorldConfig.hpp"
@@ -53,6 +54,9 @@ public:
     [[nodiscard]] const CpuHardware& cpu_hardware() const { return cpu_; }
     [[nodiscard]] RenderPreset render_preset() const { return render_preset_; }
     [[nodiscard]] const TerrainLodConfig& terrain_lod() const { return terrain_lod_config_; }
+    [[nodiscard]] const TerrainOcclusionConfig& terrain_occlusion() const {
+        return terrain_occlusion_config_;
+    }
     [[nodiscard]] const DestructionConfig& destruction() const { return destruction_; }
 
 private:
@@ -73,8 +77,11 @@ private:
     float destruction_debris_despawn_radius_override_ = 0.f;
     RenderPreset render_preset_ = RenderPreset::Medium;
     TerrainLodConfig terrain_lod_config_{};
+    TerrainOcclusionConfig terrain_occlusion_config_{};
     bool cpu_finalized_ = false;
 };
+
+[[nodiscard]] TerrainOcclusionConfig terrain_occlusion_config_from_preset(RenderPreset preset);
 
 ThreadConfig thread_config_from_hardware(const CpuHardware& cpu, const ThreadConfig& overrides);
 DestructionConfig destruction_config_from_hardware(const CpuHardware& cpu);

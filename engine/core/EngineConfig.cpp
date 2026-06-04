@@ -75,6 +75,22 @@ void apply_streaming_toml_overrides(
 
 } // namespace
 
+TerrainOcclusionConfig terrain_occlusion_config_from_preset(const RenderPreset preset) {
+    TerrainOcclusionConfig config{};
+    switch (preset) {
+    case RenderPreset::Low:
+        config.max_bfs_sections = 4096;
+        break;
+    case RenderPreset::Medium:
+        config.max_bfs_sections = 8192;
+        break;
+    case RenderPreset::High:
+        config.max_bfs_sections = 16384;
+        break;
+    }
+    return config;
+}
+
 MemoryBudget finalize_cpu_budget(const CpuHardware& cpu) {
     const size_t ram = cpu.ram_bytes > 0 ? cpu.ram_bytes : (8ULL * 1024 * 1024 * 1024);
     return MemoryBudget{
@@ -213,6 +229,7 @@ void EngineConfig::finalize_gpu(const GpuCaps& gpu, RenderPreset preset) {
     render_preset_ = preset == RenderPreset::Medium ? render_preset_from_gpu(gpu) : preset;
     finalize_gpu_budget(memory_, gpu);
     terrain_lod_config_ = terrain_lod_config_from_preset(render_preset_);
+    terrain_occlusion_config_ = terrain_occlusion_config_from_preset(render_preset_);
     streaming_ = streaming_config_from_hardware(memory_, world_, render_preset_);
     apply_streaming_toml_overrides(
         streaming_,

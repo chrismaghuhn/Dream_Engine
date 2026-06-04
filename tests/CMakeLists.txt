@@ -43,6 +43,7 @@ add_executable(engine_tests
     render/test_section_occlusion.cpp
     render/test_section_portal.cpp
     render/test_section_visibility.cpp
+    render/test_build_snapshot_connectivity.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine_core engine_audio Catch2::Catch2WithMain)
 target_compile_definitions(engine_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

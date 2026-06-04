@@ -141,8 +141,12 @@ bool Engine::startup() {
         thin_terrain_.build_cpu_meshes();
         SPDLOG_INFO("Terrain render mode: thin preview (single chunk at origin)");
     } else {
-        streaming_terrain_.init(
-            world_, chunk_store_, jobs_, config_.world(), config_.terrain_lod());
+        streaming_terrain_.init(world_,
+                                chunk_store_,
+                                jobs_,
+                                config_.world(),
+                                config_.terrain_lod(),
+                                config_.terrain_occlusion());
         SPDLOG_INFO("Terrain render mode: streaming multi-chunk");
     }
     SPDLOG_INFO(
@@ -549,6 +553,15 @@ void Engine::run() {
         const std::uint32_t water_border_lod0_forced = config_.thin_terrain_preview()
             ? 0
             : streaming_terrain_.count_water_border_lod0_forced();
+        const std::uint32_t connectivity_visible_sections = config_.thin_terrain_preview()
+            ? 0
+            : streaming_terrain_.count_connectivity_visible_sections();
+        const std::uint32_t connectivity_culled_sections = config_.thin_terrain_preview()
+            ? 0
+            : streaming_terrain_.count_connectivity_culled_sections();
+        const bool connectivity_bfs_truncated = config_.thin_terrain_preview()
+            ? false
+            : streaming_terrain_.connectivity_bfs_truncated();
         const std::uint32_t gpu_mesh_budget_mib =
             static_cast<std::uint32_t>(renderer_.mesh_pool().bytes_budget() / (1024 * 1024));
 
@@ -574,6 +587,9 @@ void Engine::run() {
                 .lod1_draw_chunks = lod1_draw_chunks,
                 .pending_lod1_mesh_jobs = pending_lod1_mesh_jobs,
                 .water_border_lod0_forced = water_border_lod0_forced,
+                .connectivity_visible_sections = connectivity_visible_sections,
+                .connectivity_culled_sections = connectivity_culled_sections,
+                .connectivity_bfs_truncated = connectivity_bfs_truncated,
                 .gpu_mesh_budget_mib = gpu_mesh_budget_mib,
             },
             inventory_ui);

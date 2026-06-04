@@ -2,6 +2,7 @@
 
 #include "engine/core/EngineConfig.hpp"
 #include "engine/core/HardwareProbe.hpp"
+#include "engine/render/SectionVisibility.hpp"
 #include "engine/world/TerrainLod.hpp"
 
 TEST_CASE("finalize_cpu leaves gpu_mesh_vram at zero") {
@@ -34,6 +35,27 @@ TEST_CASE("terrain_lod_config_from_preset maps Low and High thresholds") {
         engine::terrain_lod_config_from_preset(engine::RenderPreset::Medium);
     REQUIRE(medium.lod0_far_blocks == 96.f);
     REQUIRE(medium.lod1_far_blocks == 512.f);
+}
+
+TEST_CASE("terrain_occlusion_config_from_preset maps Low Medium High BFS caps") {
+    REQUIRE(engine::terrain_occlusion_config_from_preset(engine::RenderPreset::Low).max_bfs_sections
+            == 4096);
+    REQUIRE(
+        engine::terrain_occlusion_config_from_preset(engine::RenderPreset::Medium).max_bfs_sections
+        == 8192);
+    REQUIRE(engine::terrain_occlusion_config_from_preset(engine::RenderPreset::High).max_bfs_sections
+            == 16384);
+}
+
+TEST_CASE("finalize_gpu applies preset terrain occlusion config") {
+    engine::EngineConfig cfg;
+    cfg.finalize_cpu(engine::HardwareProbe::run_cpu());
+
+    engine::GpuCaps gpu{};
+    gpu.vram_bytes = 4ULL * 1024 * 1024 * 1024;
+    cfg.finalize_gpu(gpu, engine::RenderPreset::Low);
+
+    REQUIRE(cfg.terrain_occlusion().max_bfs_sections == 4096);
 }
 
 TEST_CASE("finalize_gpu applies preset terrain lod config") {

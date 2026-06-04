@@ -2,6 +2,7 @@
 
 #include "engine/render/FrustumCull.hpp"
 #include "engine/render/GpuDeferredFreeQueue.hpp"
+#include "engine/render/SectionVisibility.hpp"
 #include "engine/world/BlockLight.hpp"
 #include "engine/world/Chunk.hpp"
 #include "engine/world/ChunkLifecycle.hpp"
@@ -231,12 +232,14 @@ void StreamingTerrainSystem::init(flecs::world& world,
                                   ChunkStore& store,
                                   JobSystem& jobs,
                                   const WorldConfig& world_config,
-                                  const TerrainLodConfig terrain_lod_config) {
+                                  const TerrainLodConfig terrain_lod_config,
+                                  const TerrainOcclusionConfig terrain_occlusion_config) {
     world_ = &world;
     store_ = &store;
     jobs_ = &jobs;
     world_config_ = world_config;
     terrain_lod_config_ = terrain_lod_config;
+    terrain_occlusion_config_ = terrain_occlusion_config;
     chunk_meshes_.clear();
     completions_.clear();
     culled_opaque_sections_.clear();
@@ -1529,9 +1532,12 @@ void StreamingTerrainSystem::append_lod0_opaque_draws(
     const glm::vec3& chunk_origin_world,
     const glm::vec3& render_origin,
     const std::array<glm::vec4, 6>& frustum_planes,
+    const ChunkStore& store,
+    const SectionVisibilityResult& visibility,
     const GpuMeshPool& mesh_pool,
     std::uint32_t& opaque_indirect_index) {
     const float max_draw_dist_sq = max_draw_distance_blocks() * max_draw_distance_blocks();
+    const bool skip_connectivity_cull = chunk_requires_lod0_streaming_edge(store, coord);
 
     for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
         if (opaque_indirect_index >= kMaxOpaqueDrawSections) {
@@ -1557,6 +1563,12 @@ void StreamingTerrainSystem::append_lod0_opaque_draws(
         }
 
         if (!aabb_intersects_frustum(frustum_planes, cull_min, cull_max)) {
+            continue;
+        }
+
+        if (!skip_connectivity_cull
+            && !connectivity_allows_draw(visibility, {coord, section_index})) {
+            ++connectivity_culled_sections_;
             continue;
         }
 
@@ -1679,8 +1691,20 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
     snapshot.water_sections.clear();
     culled_opaque_sections_.clear();
     culled_water_sections_.clear();
-    lod1_draw_chunks_         = 0;
-    water_border_lod0_forced_ = 0;
+    lod1_draw_chunks_              = 0;
+    water_border_lod0_forced_      = 0;
+    connectivity_visible_sections_ = 0;
+    connectivity_culled_sections_  = 0;
+    connectivity_bfs_truncated_    = false;
+
+    SectionVisibilityResult visibility{};
+    if (terrain_occlusion_config_.enabled) {
+        visibility = compute_section_visibility(
+            store, focus_world_, kMeshChunkRadius, terrain_occlusion_config_);
+        connectivity_visible_sections_ =
+            static_cast<std::uint32_t>(visibility.visited_count);
+        connectivity_bfs_truncated_ = visibility.truncated;
+    }
 
     const glm::mat4 view_proj = snapshot.proj * snapshot.view;
     const std::array<glm::vec4, 6> frustum_planes = frustum_planes_from_matrix(view_proj);
@@ -1739,6 +1763,18 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                 opaque_indirect_index >= static_cast<std::uint32_t>(kMaxOpaqueDrawSections)) {
                 return false;
             }
+            if (!force_streaming_edge && connectivity_culling_active(visibility)) {
+                bool any_visible = false;
+                for (std::uint8_t section_index = 0; section_index < 8; ++section_index) {
+                    if (connectivity_allows_draw(visibility, {coord, section_index})) {
+                        any_visible = true;
+                        break;
+                    }
+                }
+                if (!any_visible) {
+                    return false;
+                }
+            }
             const glm::vec3 model_translation = chunk_origin_world - render_origin;
             const glm::vec3 cull_min          = model_translation;
             const glm::vec3 cull_max          = model_translation + glm::vec3(32.f);
@@ -1784,6 +1820,8 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                                     chunk_origin_world,
                                     render_origin,
                                     frustum_planes,
+                                    store,
+                                    visibility,
                                     mesh_pool,
                                     opaque_indirect_index);
         } else if (desired_lod == TerrainLodLevel::Lod1 && lod1_drawable) {
@@ -1795,6 +1833,8 @@ void StreamingTerrainSystem::build_snapshot(WorldRenderSnapshot& snapshot,
                                     chunk_origin_world,
                                     render_origin,
                                     frustum_planes,
+                                    store,
+                                    visibility,
                                     mesh_pool,
                                     opaque_indirect_index);
             if (culled_opaque_sections_.size() == opaque_before) {
